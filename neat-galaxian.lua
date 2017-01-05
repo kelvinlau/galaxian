@@ -5,14 +5,24 @@
 -- Intended for use on the FCEUX emulator.
 -- Enter a level, then load this script.
 
-WORK_DIR = "neat"
-FILENAME = "galaxian.pool"
+---- Game constants ----
+
 BUTTONS = {"A", "left", "right"}
 
-BoxRadius = 6
-InputSize = (BoxRadius*2+1)*(BoxRadius*2+1)
+X1 = 16
+X2 = 240
+DX = 8
+Y1 = 42
+Y2 = 222
+DY = 12
 
-Inputs = InputSize+1
+SIGHT_RADIUS = 10
+
+---- NN and GA constants ----
+
+NUM_SNAPSHOTS = 1
+NUM_TILE_MAP_NODES = (SIGHT_RADIUS*2) * SIGHT_RADIUS * NUM_SNAPSHOTS
+Inputs = NUM_TILE_MAP_NODES + 3
 Outputs = #BUTTONS
 
 Population = 300
@@ -32,17 +42,46 @@ StepSize = 0.1
 DisableMutationChance = 0.4
 EnableMutationChance = 0.2
 
-TimeoutConstant = 20
-
 MaxNodes = 1000000
 
-function getInputs()
+---- Pool file constants ----
+
+WORK_DIR = "Z:/Users/kelvinlau/neat"
+FILENAME = "galaxian.pool"
+
+----
+
+function getInputs(g)
   local inputs = {}
-  -- tile_map (3 versions)
-  -- has misile or not (maybe misile_y?)
-  -- galaxian_x
-  -- galaxian_x % DX
+  -- tile_map
+  -- TODO: last several snapshots
   -- TODO: enemy type?
+  for i = 1,NUM_TILE_MAP_NODES do
+    inputs[i] = 0
+  end
+  for x, row in pairs(g.tile_map) do
+    for y, val in pairs(row) do
+      local iy = (y - g.sight.y0) / DY
+      local ix = (x - g.sight.x0) / DX
+      local i = iy * (2 * SIGHT_RADIUS) + ix + 1
+      if 1 <= i and i <= NUM_TILE_MAP_NODES then
+        inputs[i] = val
+      else
+        emu.print("Invalid tile:", x, y, val, ix, iy, i)
+      end
+    end
+  end
+  -- has misile or not
+  -- TODO: maybe misile_y?
+  if g.missile ~= nil then
+    inputs[#inputs+1] = 1
+  else
+    inputs[#inputs+1] = 0
+  end
+  -- galaxian_x scaled in [0, 1]
+  inputs[#inputs+1] = (g.galaxian_x - X1) / (X2 - X1)
+  -- galaxian_x % DX
+  inputs[#inputs+1] = g.galaxian_x % DX / DX
   return inputs
 end
 
@@ -83,7 +122,6 @@ function newGenome()
   genome.genes = {}
   genome.fitness = 0
   genome.adjustedFitness = 0
-  genome.network = {}
   genome.maxneuron = 0
   genome.globalRank = 0
   genome.mutationRates = {}
@@ -187,9 +225,8 @@ function generateNetwork(genome)
 end
 
 function evaluateNetwork(network, inputs)
-  table.insert(inputs, 1)
   if #inputs ~= Inputs then
-    emu.print("Incorrect number of neural network inputs.")
+    emu.print("Incorrect number of neural network inputs.", #inputs, Inputs)
     return {}
   end
   
@@ -669,51 +706,27 @@ function newGeneration()
   
   pool.generation = pool.generation + 1
   
-  writeFile("backup." .. pool.generation .. "." .. FILENAME)
+  savePool()
 end
   
 function initializePool()
+  emu.print("Initializing a new pool")
+
   pool = newPool()
 
   for i=1,Population do
     basic = basicGenome()
     addToSpecies(basic)
   end
-
-  initializeRun()
 end
 
 function clearJoypad()
-  controller = {}
+  local controller = {}
   for b = 1,#BUTTONS do
     controller[BUTTONS[b]] = false
   end
   joypad.set(1, controller)
 end
-
-function initializeRun()
-  savestate.load(initState);
-  rightmost = 0
-  pool.currentFrame = 0
-  timeout = TimeoutConstant
-  clearJoypad()
-  
-  local species = pool.species[pool.currentSpecies]
-  local genome = species.genomes[pool.currentGenome]
-  generateNetwork(genome)
-  evaluateCurrent()
-end
-
-function evaluateCurrent()
-  local species = pool.species[pool.currentSpecies]
-  local genome = species.genomes[pool.currentGenome]
-
-  inputs = getInputs()
-  controller = evaluateNetwork(genome.network, inputs)
-
-  joypad.set(1, controller)
-end
-
 
 function nextGenome()
   pool.currentGenome = pool.currentGenome + 1
@@ -735,6 +748,8 @@ function fitnessAlreadyMeasured()
 end
 
 function writeFile(filename)
+  emu.print("Saving pool to " .. filename)
+
   local file = io.open(WORK_DIR .. "/" .. filename, "w")
   file:write(pool.generation .. "\n")
   file:write(pool.maxFitness .. "\n")
@@ -770,11 +785,18 @@ function writeFile(filename)
 end
 
 function savePool()
+  writeFile("backup." .. pool.generation .. "." .. FILENAME)
   writeFile(FILENAME)
 end
 
 function loadFile(filename)
   local file = io.open(WORK_DIR .. "/" .. filename, "r")
+  if file == nil then
+    return false
+  end
+
+  emu.print("Loading pool from " .. filename)
+
   pool = newPool()
   pool.generation = file:read("*number")
   pool.maxFitness = file:read("*number")
@@ -816,12 +838,12 @@ function loadFile(filename)
   while fitnessAlreadyMeasured() do
     nextGenome()
   end
-  initializeRun()
-  pool.currentFrame = pool.currentFrame + 1
+
+  return true
 end
  
 function loadPool()
-  loadFile(FILENAME)
+  return loadFile(FILENAME)
 end
 
 function playTop()
@@ -840,27 +862,20 @@ function playTop()
   pool.currentSpecies = maxs
   pool.currentGenome = maxg
   pool.maxFitness = maxfitness
-  -- forms.settext(maxFitnessLabel, "Max Fitness: " .. math.floor(pool.maxFitness))
-  initializeRun()
-  pool.currentFrame = pool.currentFrame + 1
-  return
 end
 
-X1 = 16
-X2 = 240
-Y1 = 42
-Y2 = 222
-DX = 8
-DY = 12
+---- Game ----
 
 -- Enemies.
 function GetEnemies()
   local ret = {}
   -- Incoming enemies.
   for addr=0x203,0x253,0x10 do
-    local x = memory.readbyte(addr) + DX
-    local y = memory.readbyte(addr + 1) + DY / 2
+    local x = memory.readbyte(addr)
+    local y = memory.readbyte(addr + 1)
     if x > 0 and y > 0 then
+      x = x + DX
+      y = y + DY / 2
       ret[#ret+1] = {x=x, y=y}
     end
   end
@@ -886,21 +901,36 @@ end
 function GetBullets()
   local ret = {}
   for addr=0x28B,0x29F,0x4 do
-    local x = memory.readbyte(addr) + 4
-    local y = memory.readbyte(addr - 3) + 8
+    local x = memory.readbyte(addr)
+    local y = memory.readbyte(addr - 3)
     if x > 0 and y > 0 then
-      ret[#ret+1] = {x=x, y=y}
+      ret[#ret+1] = {x=x+4, y=y+8}
     end
   end
   return ret
 end
 
+-- Sight rectangle.
+function GetSight(galaxian_gx)
+  local sight = {
+    x0 = galaxian_gx - SIGHT_RADIUS * DX,
+    y0 = Y2 - SIGHT_RADIUS * DY,
+  }
+  sight.x1 = math.max(galaxian_gx - SIGHT_RADIUS * DX, X1)
+  sight.x2 = math.min(galaxian_gx + SIGHT_RADIUS * DX, X2)
+  sight.y1 = sight.y0
+  sight.y2 = Y2
+  return sight
+end
+
 -- Tile map.
-function GetTileMap(enemies, bullets)
+function GetTileMap(enemies, bullets, sight)
   map = {}
 
   function Add(gx, gy, val)
-    if val ~= 0 and X1 <= gx and gx < X2 and Y1 <= gy and gy < Y2 then
+    if val ~= 0 and gy < sight.y2 then
+      gx = math.max(sight.x1, math.min(sight.x2 - DX, gx))
+      gy = math.max(sight.y1, gy)
       if map[gx] == nil then
         map[gx] = {}
       end
@@ -950,29 +980,15 @@ function GetScore()
   return score
 end
 
----- UI options ----
+---- UI ----
 
-SHOW_GRID = true
+SHOW_GRID = false
 SHOW_COOR = false
-SHOW_TILE_MAP = true
+SHOW_TILE_MAP = false
 SHOW_OBJECTS = false
+SHOW_BANNER = true
 
----- Script starts here ----
-
-emu.print("Running NEAT Galaxian")
-
-INIT_STATE = savestate.create(9)
-savestate.save(INIT_STATE);
-
-while true do
-  galaxian_x = (memory.readbyte(0xE4) + 124) % 256 + 4
-  enemies = GetEnemies()
-  bullets = GetBullets()
-  missile = GetMissile()
-  score = GetScore()
-  lifes = memory.readbyte(0x42)
-  tile_map = GetTileMap(enemies, bullets)
-
+function Show(g)
   if SHOW_GRID then
     color = {0xFF, 0xFF, 0xFF, 0x80}
     for x = X1,X2,DX do
@@ -991,31 +1007,131 @@ while true do
   end
 
   if SHOW_TILE_MAP then
-    for x, row in pairs(tile_map) do
+    for x, row in pairs(g.tile_map) do
       for y, val in pairs(row) do
-        if val > 0 then
-          gui.drawbox(x, y, x + DX, y + DY, {0xFF, 0, 0, 0x80 * val}, 'clear')
-        end
+        gui.drawbox(x, y, x + DX, y + DY, {0xFF, 0, 0, 0x40 * val}, 'clear')
       end
     end
-    local gx = (galaxian_x - X1) - (galaxian_x - X1) % DX + X1
-    gui.drawbox(gx, Y2 - DY, gx + DX, Y2, {0, 0xFF, 0, 0x80}, 'clear')
+    gui.drawbox(g.galaxian_gx, Y2 - DY, g.galaxian_gx + DX, Y2, {0, 0xFF, 0, 0x80}, 'clear')
   end
 
   if SHOW_OBJECTS then
-    for _, e in pairs(enemies) do
+    for _, e in pairs(g.enemies) do
       gui.drawbox(e.x - DX, e.y - DY / 2, e.x + DX, e.y + DY / 2, {0xFF, 0, 0, 0x80}, 'clear')
     end
-    for _, b in pairs(bullets) do
+    for _, b in pairs(g.bullets) do
       gui.drawbox(b.x - 4, b.y - 4, b.x + 4, b.y + 4, {0xFF, 0xFF, 0, 0x80}, 'clear')
     end
     galaxian_y = 200
-    gui.drawbox(galaxian_x - 4, galaxian_y, galaxian_x + 4, galaxian_y + 8, 'green')
+    gui.drawbox(g.galaxian_x - 4, galaxian_y, g.galaxian_x + 4, galaxian_y + 8, 'green')
   end
 
-  if lifes < 2 then
+  if SHOW_BANNER then
+    local measured = 0
+    local total = 0
+    for _,species in pairs(pool.species) do
+      for _,genome in pairs(species.genomes) do
+        total = total + 1
+        if genome.fitness ~= 0 then
+          measured = measured + 1
+        end
+      end
+    end
+    gui.drawbox(0, 0, 300, 26, {0xFF, 0xFF, 0xFF, '0x80'}, 'clear')
+    gui.drawtext(5, 10, "Gen " .. pool.generation .. " species " ..
+        pool.currentSpecies .. " genome " .. pool.currentGenome ..
+        " (" .. math.floor(measured/total*100) .. "%)", 'black', 'clear')
+    gui.drawtext(5, 18, "Fitness: " .. g.score, 'black', 'clear')
+    gui.drawtext(100, 18, "Max Fitness: " .. pool.maxFitness, 'black', 'clear')
+  end
+end
+
+---- Misc ----
+
+function SkipFrames(frames)
+  for i=1,frames do
+    emu.frameadvance();
+  end
+end
+
+---- Script starts here ----
+
+emu.print("Running NEAT Galaxian")
+
+-- Reset then enter menu then save.
+emu.softreset()
+for k=1,2 do
+  SkipFrames(60)
+  for i=1,10 do
+    joypad.set(1, {start=true})
+    emu.frameadvance();
+  end
+  for i=1,10 do
+    joypad.set(1, {start=false})
+    emu.frameadvance();
+  end
+end
+SkipFrames(240)
+INIT_STATE = savestate.create(9)
+savestate.save(INIT_STATE);
+
+if not loadPool() then
+  initializePool()
+end
+
+local controller = nil
+
+while true do
+  local g = {}
+  g.galaxian_x = (memory.readbyte(0xE4) + 124) % 256 + 4
+  g.galaxian_gx = (g.galaxian_x - X1) - (g.galaxian_x - X1) % DX + X1
+  g.enemies = GetEnemies()
+  g.bullets = GetBullets()
+  g.missile = GetMissile()
+  g.score = GetScore()
+  g.lifes = memory.readbyte(0x42)
+  g.sight = GetSight(g.galaxian_gx)
+  g.tile_map = GetTileMap(g.enemies, g.bullets, g.sight)
+
+  local species = pool.species[pool.currentSpecies]
+  local genome = species.genomes[pool.currentGenome]
+  if genome.network == nil then
+    generateNetwork(genome)
+  end
+  if controller == nil or pool.currentFrame % 5 == 0 then
+    controller = evaluateNetwork(genome.network, getInputs(g))
+  end
+  joypad.set(1, controller)
+
+  -- Reset if dead.
+  if g.lifes < 2 then
+    genome.fitness = g.score + pool.currentFrame + 1
+    
+    if genome.fitness > pool.maxFitness then
+      pool.maxFitness = genome.fitness
+      savePool()
+    end
+    
+    emu.print("Gen " .. pool.generation .. " species " .. pool.currentSpecies ..
+        " genome " .. pool.currentGenome .. " fitness: " .. genome.fitness)
+
     savestate.load(INIT_STATE);
+    pool.currentFrame = 0
+    clearJoypad()
+
+    pool.currentSpecies = 1
+    pool.currentGenome = 1
+    while fitnessAlreadyMeasured() do
+      nextGenome()
+    end
+    
+    local species = pool.species[pool.currentSpecies]
+    local genome = species.genomes[pool.currentGenome]
+    generateNetwork(genome)
   end
 
+  Show(g)
+
+  pool.currentFrame = pool.currentFrame + 1
   emu.frameadvance();
 end
