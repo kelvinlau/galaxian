@@ -148,12 +148,9 @@ function CopyGenome(genome)
     table.insert(genome2.genes, CopyGene(genome.genes[g]))
   end
   genome2.max_neuron = genome.max_neuron
-  genome2.mutation_rates["connections"] = genome.mutation_rates["connections"]
-  genome2.mutation_rates["link"] = genome.mutation_rates["link"]
-  genome2.mutation_rates["bias"] = genome.mutation_rates["bias"]
-  genome2.mutation_rates["node"] = genome.mutation_rates["node"]
-  genome2.mutation_rates["enable"] = genome.mutation_rates["enable"]
-  genome2.mutation_rates["disable"] = genome.mutation_rates["disable"]
+  for mutation,rate in pairs(genome.mutation_rates) do
+    genome2.mutation_rates[mutation] = rate
+  end
   
   return genome2
 end
