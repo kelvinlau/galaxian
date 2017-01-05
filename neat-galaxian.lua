@@ -4,6 +4,11 @@
 -- Inspired by MarI/O by SethBling.
 -- Intended for use on the FCEUX emulator.
 -- Enter a level, then load this script.
+--
+-- TODO ideas:
+-- * Run on a cluster using GUI-less emulation.
+-- * Time traveling.
+-- * Learn from human (back propagation).
 
 ---- Game constants ----
 
@@ -16,13 +21,15 @@ Y1 = 42
 Y2 = 222
 DY = 12
 
-SIGHT_RADIUS = 10
+-- TODO: Tune to 8, 8.
+SIGHT_X = 7
+SIGHT_Y = 10
 
 ---- NN and GA constants ----
 
 NUM_SNAPSHOTS = 3
-NUM_TILE_MAP_NODES = (SIGHT_RADIUS*2) * SIGHT_RADIUS
-NUM_SPECIAL_INPUT_NODES = 3
+NUM_TILE_MAP_NODES = (SIGHT_X*2) * SIGHT_Y
+NUM_SPECIAL_INPUT_NODES = 4
 NUM_INPUT_NODES = NUM_TILE_MAP_NODES * NUM_SNAPSHOTS + NUM_SPECIAL_INPUT_NODES
 NUM_OUTPUT_NODES = #BUTTONS
 
@@ -37,8 +44,8 @@ MUTATE_CONNECTION_CHANCE = 0.25
 PERTURB_CHANCE = 0.90
 CROSSOVER_CHANCE = 0.75
 LINK_MUTATION_CHANCE = 2.0
-NODE_MUTATION_CHANCE = 0.50
-BIAS_MUTATION_CHANCE = 0.40
+NODE_MUTATION_CHANCE = 0.60
+SPECIAL_MUTATION_CHANCE = 0.40
 STEP_SIZE = 0.1
 DISABLE_MUTATION_CHANCE = 0.4
 ENABLE_MUTATION_CHANCE = 0.2
@@ -67,7 +74,7 @@ function GetInputs(g)
              g.sight.y1 <= y and y < g.sight.y2)) then
           local ix = (x - g.sight.x0) / DX
           local iy = (y - g.sight.y0) / DY
-          local id = map_id * NUM_TILE_MAP_NODES + iy * (2 * SIGHT_RADIUS) + ix + 1
+          local id = map_id * NUM_TILE_MAP_NODES + iy * (2 * SIGHT_X) + ix + 1
           if 1 <= id and id <= #inputs then
             inputs[id] = val
           else
@@ -88,7 +95,8 @@ function GetInputs(g)
   inputs[#inputs+1] = (g.galaxian_x - X1) / (X2 - X1)
   -- galaxian_x % DX
   inputs[#inputs+1] = g.galaxian_x % DX / DX
-  -- TODO: add a bias input neuron?
+  -- bias input neuron
+  inputs[#inputs+1] = 1
   return inputs
 end
 
@@ -133,7 +141,7 @@ function NewGenome()
   genome.mutation_rates = {}
   genome.mutation_rates["connections"] = MUTATE_CONNECTION_CHANCE
   genome.mutation_rates["link"] = LINK_MUTATION_CHANCE
-  genome.mutation_rates["bias"] = BIAS_MUTATION_CHANCE
+  genome.mutation_rates["special"] = SPECIAL_MUTATION_CHANCE
   genome.mutation_rates["node"] = NODE_MUTATION_CHANCE
   genome.mutation_rates["enable"] = ENABLE_MUTATION_CHANCE
   genome.mutation_rates["disable"] = DISABLE_MUTATION_CHANCE
@@ -455,7 +463,7 @@ function Mutate(genome)
     p = p - 1
   end
 
-  p = genome.mutation_rates["bias"]
+  p = genome.mutation_rates["special"]
   while p > 0 do
     if math.random() < p then
       LinkMutate(genome, true)
@@ -876,7 +884,7 @@ function GetEnemies()
     if x > 0 and y > 0 then
       x = x + DX
       y = y + DY / 2
-      ret[#ret+1] = {x=x, y=y}
+      ret[#ret+1] = {x=x, y=y, w=1}
     end
   end
   -- Enemies standing still.
@@ -887,7 +895,7 @@ function GetEnemies()
     local mask = memory.readbyte(0xC3 + i)
     while mask > 0 do
       if mask % 2 ~= 0 then
-        ret[#ret+1] = {x=x, y=y}
+        ret[#ret+1] = {x=x, y=y, w=0.2}
         mask = mask - 1
       end
       mask = mask / 2
@@ -913,11 +921,11 @@ end
 -- Sight rectangle.
 function GetSight(galaxian_gx)
   local sight = {
-    x0 = galaxian_gx - SIGHT_RADIUS * DX,
-    y0 = Y2 - SIGHT_RADIUS * DY,
+    x0 = galaxian_gx - SIGHT_X * DX,
+    y0 = Y2 - SIGHT_Y * DY,
   }
-  sight.x1 = math.max(galaxian_gx - SIGHT_RADIUS * DX, X1)
-  sight.x2 = math.min(galaxian_gx + SIGHT_RADIUS * DX, X2)
+  sight.x1 = math.max(galaxian_gx - SIGHT_X * DX, X1)
+  sight.x2 = math.min(galaxian_gx + SIGHT_X * DX, X2)
   sight.y1 = sight.y0
   sight.y2 = Y2
   return sight
@@ -949,14 +957,14 @@ function GetTileMap(enemies, bullets, sight)
     local pxl = math.max(cx - e.x, 0) / DX
     local pxr = math.max(e.x - cx, 0) / DX
     local pxc = 1 - pxl - pxr
-    Add(gx, gy, pxc)
-    Add(gx - DX, gy, pxl)
-    Add(gx + DX, gy, pxr)
+    Add(gx,      gy, e.w * pxc)
+    Add(gx - DX, gy, e.w * pxl)
+    Add(gx + DX, gy, e.w * pxr)
   end
   for _, b in pairs(bullets) do
     local gx = (b.x - X1) - (b.x - X1) % DX + X1
     local gy = (b.y - Y1) - (b.y - Y1) % DY + Y1
-    Add(gx, gy, 1)
+    Add(gx, gy, 1) -- TODO: Use -1 for bullets?
   end
   return map
 end
@@ -984,11 +992,12 @@ end
 
 SHOW_GRID = false
 SHOW_COOR = false
-SHOW_TILE_MAP = false
+SHOW_TILE_MAP = true
 SHOW_OBJECTS = false
 SHOW_BANNER = true
 
 function Show(g, genome)
+  gui.drawbox(0, 0, 256, 256, 'black', 'clear')
   if SHOW_GRID then
     color = {0xFF, 0xFF, 0xFF, 0x80}
     for x = X1,X2,DX do
@@ -1100,6 +1109,7 @@ while true do
   local species = pool.species[pool.cur_species]
   local genome = species.genomes[pool.cur_genome]
 
+  -- TODO: Tune 20 -> 3, or make this coefficient as a param in genome?
   genome.fitness = g.score + math.floor(pool.cur_frame / 20) + 1
   if genome.network == nil then
     GenerateNetwork(genome)
