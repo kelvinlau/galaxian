@@ -9,7 +9,13 @@
 -- * Run on a cluster using GUI-less emulation.
 -- * Time traveling.
 -- * Learn from human (back propagation).
--- * Use flying enemies' coordinates as input.
+-- * galaxian_x + dx instead of galaxian_gx + dx
+
+---- Configs ----
+
+WORK_DIR = "Z:/Users/kelvinlau/neat"
+FILENAME = "galaxian.pool"
+PLAY_TOP = false
 
 ---- Game constants ----
 
@@ -22,15 +28,20 @@ Y1 = 42
 Y2 = 222
 DY = 12
 
-SIGHT_X = 12
-SIGHT_Y = 8
+SIGHT_X = 16
+SIGHT_Y = 1
+NUM_INCOMING_ENEMIES = 6
+NUM_BULLETS = 6
 
 ---- NN and GA constants ----
 
 NUM_SNAPSHOTS = 3
 NUM_TILE_MAP_NODES = (SIGHT_X*2) * SIGHT_Y
 NUM_SPECIAL_INPUT_NODES = 4
-NUM_INPUT_NODES = NUM_TILE_MAP_NODES * NUM_SNAPSHOTS + NUM_SPECIAL_INPUT_NODES
+NUM_INPUT_NODES = (
+    NUM_TILE_MAP_NODES * NUM_SNAPSHOTS +
+    2 * (NUM_INCOMING_ENEMIES + NUM_BULLETS) * NUM_SNAPSHOTS +
+    NUM_SPECIAL_INPUT_NODES)
 NUM_OUTPUT_NODES = #BUTTONS
 
 POPULATION = 300
@@ -52,38 +63,72 @@ ENABLE_MUTATION_CHANCE = 0.2
 
 MAX_NODES = 1000000
 
----- Checkpoint file constants ----
-
-WORK_DIR = "Z:/Users/kelvinlau/neat"
-FILENAME = "galaxian.pool"
-
 ----
 
-function GetInputs(g)
+function GetInputs(games)
   local inputs = {}
+  local g = games[0]  -- g = current game
+
   -- tile_map (last several snapshots)
-  -- TODO: enemy type?
   for id = 1,NUM_TILE_MAP_NODES * NUM_SNAPSHOTS do
     inputs[id] = 0
   end
-  for map_id, tile_map in pairs(g.prev_tile_maps) do
-    for x, row in pairs(tile_map) do
+  for gid, game in pairs(games) do
+    for x, row in pairs(game.tile_map) do
       for y, val in pairs(row) do
-        if (map_id == 0 or
+        if (gid == 0 or
             (g.sight.x1 <= x and x < g.sight.x2 and
              g.sight.y1 <= y and y < g.sight.y2)) then
           local ix = (x - g.sight.x0) / DX
           local iy = (y - g.sight.y0) / DY
-          local id = map_id * NUM_TILE_MAP_NODES + iy * (2 * SIGHT_X) + ix + 1
+          local id = gid * NUM_TILE_MAP_NODES + iy * (2 * SIGHT_X) + ix + 1
           if 1 <= id and id <= #inputs then
             inputs[id] = val
           else
-            emu.print("Invalid tile:", map_id, x, y, val, ix, iy, id, g.sight)
+            emu.print("Invalid tile:", gid, x, y, val, ix, iy, id, g.sight)
           end
         end
       end
     end
   end
+
+  for k = 0,NUM_SNAPSHOTS-1 do
+    local game = games[k]
+    if game ~= nil then
+      -- incoming enemies.
+      -- TODO: enemy type?
+      for i = 1,NUM_INCOMING_ENEMIES do
+        local e = game.incoming_enemies[i]
+        if e ~= nil then
+          local dx = (e.x - g.galaxian_x) / (X2 - X1)
+          local dy = (e.y - g.galaxian_y) / (Y2 - Y1)
+          inputs[#inputs+1] = dx
+          inputs[#inputs+1] = dy
+        else
+          inputs[#inputs+1] = 1
+          inputs[#inputs+1] = 1
+        end
+      end
+      -- bullets.
+      for i = 1,NUM_BULLETS do
+        local b = game.bullets[i]
+        if b ~= nil then
+          local dx = (b.x - g.galaxian_x) / (X2 - X1)
+          local dy = (b.y - g.galaxian_y) / (Y2 - Y1)
+          inputs[#inputs+1] = dx
+          inputs[#inputs+1] = dy
+        else
+          inputs[#inputs+1] = 1
+          inputs[#inputs+1] = 1
+        end
+      end
+    else
+      for i = 1,2*(NUM_INCOMING_ENEMIES+NUM_BULLETS) do
+        inputs[#inputs+1] = 1
+      end
+    end
+  end
+
   -- has misile or not
   -- TODO: maybe misile_y?
   if g.missile ~= nil then
@@ -91,12 +136,16 @@ function GetInputs(g)
   else
     inputs[#inputs+1] = 0
   end
+
   -- galaxian_x scaled in [0, 1]
   inputs[#inputs+1] = (g.galaxian_x - X1) / (X2 - X1)
+
   -- galaxian_x % DX
   inputs[#inputs+1] = g.galaxian_x % DX / DX
+
   -- bias input neuron
   inputs[#inputs+1] = 1
+
   return inputs
 end
 
@@ -878,25 +927,29 @@ function PlayTop()
   
   pool.cur_species = maxs
   pool.cur_genome = maxg
-  pool.max_fitness = maxfitness
+  -- pool.max_fitness = maxfitness
 end
 
 ---- Game ----
 
--- Enemies.
-function GetEnemies()
+-- Incoming enemies.
+function GetIncomingEnemies()
   local ret = {}
-  -- Incoming enemies.
   for addr=0x203,0x253,0x10 do
     local x = memory.readbyte(addr)
     local y = memory.readbyte(addr + 1)
     if x > 0 and y > 0 then
       x = x + DX
       y = y + DY / 2
-      ret[#ret+1] = {x=x, y=y, w=1}
+      ret[#ret+1] = {x=x, y=y}
     end
   end
-  -- Enemies standing still.
+  return ret
+end
+
+-- Enemies standing still.
+function GetStillEnemies()
+  local ret = {}
   local dx = memory.readbyte(0xE5)
   for i=0,9 do
     local x = (dx + 48) % 256 + 16 * i + DX
@@ -904,7 +957,7 @@ function GetEnemies()
     local mask = memory.readbyte(0xC3 + i)
     while mask > 0 do
       if mask % 2 ~= 0 then
-        ret[#ret+1] = {x=x, y=y, w=0.2}
+        ret[#ret+1] = {x=x, y=y}
         mask = mask - 1
       end
       mask = mask / 2
@@ -941,7 +994,7 @@ function GetSight(galaxian_gx)
 end
 
 -- Tile map.
-function GetTileMap(enemies, bullets, sight)
+function GetTileMap(enemies, sight)
   map = {}
 
   function Add(gx, gy, val)
@@ -958,6 +1011,7 @@ function GetTileMap(enemies, bullets, sight)
     end
   end
 
+  local w = 0.2
   for _, e in pairs(enemies) do
     local gx = (e.x - X1) - (e.x - X1) % DX + X1
     local gy = (e.y - Y1) - (e.y - Y1) % DY + Y1
@@ -966,14 +1020,9 @@ function GetTileMap(enemies, bullets, sight)
     local pxl = math.max(cx - e.x, 0) / DX
     local pxr = math.max(e.x - cx, 0) / DX
     local pxc = 1 - pxl - pxr
-    Add(gx,      gy, e.w * pxc)
-    Add(gx - DX, gy, e.w * pxl)
-    Add(gx + DX, gy, e.w * pxr)
-  end
-  for _, b in pairs(bullets) do
-    local gx = (b.x - X1) - (b.x - X1) % DX + X1
-    local gy = (b.y - Y1) - (b.y - Y1) % DY + Y1
-    Add(gx, gy, 1) -- TODO: Add another layer for bullets.
+    Add(gx,      gy, w * pxc)
+    Add(gx - DX, gy, w * pxl)
+    Add(gx + DX, gy, w * pxr)
   end
   return map
 end
@@ -1002,9 +1051,11 @@ end
 SHOW_GRID = false
 SHOW_COOR = false
 SHOW_TILE_MAP = true
-SHOW_OBJECTS = false
+SHOW_STILL_ENEMIES = false
+SHOW_INCOMING_ENEMIES = true
+SHOW_BULLETS = true
 SHOW_BANNER = true
-SHOW_AI_VISION = true
+SHOW_AI_VISION = false
 
 function Show(g, genome)
   if SHOW_AI_VISION then
@@ -1036,15 +1087,21 @@ function Show(g, genome)
     gui.drawbox(g.galaxian_gx, Y2 - DY, g.galaxian_gx + DX, Y2, {0, 0xFF, 0, 0x80}, 'clear')
   end
 
-  if SHOW_OBJECTS then
-    for _, e in pairs(g.enemies) do
+  if SHOW_STILL_ENEMIES then
+    for _, e in pairs(g.still_enemies) do
       gui.drawbox(e.x - DX, e.y - DY / 2, e.x + DX, e.y + DY / 2, {0xFF, 0, 0, 0x80}, 'clear')
     end
+  end
+  if SHOW_INCOMING_ENEMIES then
+    for _, e in pairs(g.incoming_enemies) do
+      gui.drawbox(e.x - DX, e.y - DY / 2, e.x + DX, e.y + DY / 2, {0xFF, 0, 0, 0x80}, 'clear')
+    end
+  end
+  if SHOW_BULLETS then
     for _, b in pairs(g.bullets) do
       gui.drawbox(b.x - 4, b.y - 4, b.x + 4, b.y + 4, {0xFF, 0xFF, 0, 0x80}, 'clear')
     end
-    galaxian_y = 200
-    gui.drawbox(g.galaxian_x - 4, galaxian_y, g.galaxian_x + 4, galaxian_y + 8, 'green')
+    gui.drawbox(g.galaxian_x - 4, g.galaxian_y, g.galaxian_x + 4, g.galaxian_y + 8, 'green')
   end
 
   if SHOW_BANNER then
@@ -1101,44 +1158,53 @@ if not LoadPool() then
   InitializePool()
 end
 
+if PLAY_TOP then
+  -- PlayTop()
+  pool.cur_species = 11
+  pool.cur_genome = 1
+  emu.speedmode("normal")
+end
+
 local controller = nil
-local prev_tile_maps = {}
+local games = {}
 
 while true do
   local g = {}
   g.galaxian_x = (memory.readbyte(0xE4) + 124) % 256 + 4
+  g.galaxian_y = 210
   g.galaxian_gx = (g.galaxian_x - X1) - (g.galaxian_x - X1) % DX + X1
-  g.enemies = GetEnemies()
+  g.still_enemies = GetStillEnemies()
+  g.incoming_enemies = GetIncomingEnemies()
   g.bullets = GetBullets()
   g.missile = GetMissile()
   g.score = GetScore()
   g.lifes = memory.readbyte(0x42)
   g.sight = GetSight(g.galaxian_gx)
-  g.tile_map = GetTileMap(g.enemies, g.bullets, g.sight)
-  g.prev_tile_maps = prev_tile_maps
-  g.prev_tile_maps[0] = tile_map
+  g.tile_map = GetTileMap(g.still_enemies, g.sight)
+
+  games[0] = g
 
   local species = pool.species[pool.cur_species]
   local genome = species.genomes[pool.cur_genome]
 
   -- TODO: Tune this, or make this coefficient as a param in genome?
-  genome.fitness = g.score + math.floor(pool.cur_frame / 5) + 1
+  genome.fitness = g.score + math.floor(pool.cur_frame / 20) + 1
   if genome.network == nil then
     GenerateNetwork(genome)
   end
 
   -- React every 10 frames.
   if controller == nil or pool.cur_frame % 10 == 0 then
-    controller = EvaluateNetwork(genome.network, GetInputs(g))
+    controller = EvaluateNetwork(genome.network, GetInputs(games))
   end
   joypad.set(1, controller)
 
   -- Add a snapshot for every 30 frames.
   if pool.cur_frame % 30 == 0 then
     for i = NUM_SNAPSHOTS-1,2 do
-      prev_tile_maps[i] = prev_tile_maps[i-1]
+      games[i] = games[i-1]
     end
-    prev_tile_maps[1] = g.tile_map
+    games[1] = g
   end
 
   -- Reset if dead.
