@@ -9,6 +9,7 @@
 -- * Run on a cluster using GUI-less emulation.
 -- * Time traveling.
 -- * Learn from human (back propagation).
+-- * Use flying enemies' coordinates as input.
 
 ---- Game constants ----
 
@@ -1121,7 +1122,7 @@ while true do
   local genome = species.genomes[pool.cur_genome]
 
   -- TODO: Tune this, or make this coefficient as a param in genome?
-  genome.fitness = g.score + math.floor(pool.cur_frame / 2) + 1
+  genome.fitness = g.score + math.floor(pool.cur_frame / 5) + 1
   if genome.network == nil then
     GenerateNetwork(genome)
   end
