@@ -229,6 +229,8 @@ function GenerateNetwork(genome)
       end
     end
   end
+
+  network.max_neuron = genome.max_neuron
   
   genome.network = network
 end
@@ -242,18 +244,25 @@ function EvaluateNetwork(network, inputs)
   for i=1,NUM_INPUT_NODES do
     network.neurons[i].value = inputs[i]
   end
-  
-  for _,neuron in pairs(network.neurons) do
+
+  function EvaluateNeuron(neuron)
+    if neuron == nil or #neuron.incoming == 0 then
+      return
+    end
     local sum = 0
     for j = 1,#neuron.incoming do
       local incoming = neuron.incoming[j]
-      local other = network.neurons[incoming.into]
-      sum = sum + incoming.weight * other.value
+      local source = network.neurons[incoming.into]
+      sum = sum + incoming.weight * source.value
     end
-    
-    if #neuron.incoming > 0 then
-      neuron.value = Sigmoid(sum)
-    end
+    neuron.value = Sigmoid(sum)
+  end
+  
+  for i = NUM_INPUT_NODES+1,network.max_neuron do
+    EvaluateNeuron(network.neurons[i])
+  end
+  for i = MAX_NODES+1,MAX_NODES+NUM_OUTPUT_NODES do
+    EvaluateNeuron(network.neurons[i])
   end
   
   local outputs = {}
