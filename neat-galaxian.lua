@@ -20,9 +20,9 @@ SIGHT_RADIUS = 10
 
 ---- NN and GA constants ----
 
-NUM_SNAPSHOTS = 1
-NUM_TILE_MAP_NODES = (SIGHT_RADIUS*2) * SIGHT_RADIUS * NUM_SNAPSHOTS
-Inputs = NUM_TILE_MAP_NODES + 3
+NUM_SNAPSHOTS = 3
+NUM_TILE_MAP_NODES = (SIGHT_RADIUS*2) * SIGHT_RADIUS
+Inputs = NUM_TILE_MAP_NODES * NUM_SNAPSHOTS + 3
 Outputs = #BUTTONS
 
 Population = 300
@@ -53,21 +53,26 @@ FILENAME = "galaxian.pool"
 
 function getInputs(g)
   local inputs = {}
-  -- tile_map
-  -- TODO: last several snapshots
+  -- tile_map (last several snapshots)
   -- TODO: enemy type?
-  for i = 1,NUM_TILE_MAP_NODES do
-    inputs[i] = 0
+  for id = 1,NUM_TILE_MAP_NODES * NUM_SNAPSHOTS do
+    inputs[id] = 0
   end
-  for x, row in pairs(g.tile_map) do
-    for y, val in pairs(row) do
-      local iy = (y - g.sight.y0) / DY
-      local ix = (x - g.sight.x0) / DX
-      local i = iy * (2 * SIGHT_RADIUS) + ix + 1
-      if 1 <= i and i <= NUM_TILE_MAP_NODES then
-        inputs[i] = val
-      else
-        emu.print("Invalid tile:", x, y, val, ix, iy, i)
+  for map_id, tile_map in pairs(g.prev_tile_maps) do
+    for x, row in pairs(tile_map) do
+      for y, val in pairs(row) do
+        if (map_id == 0 or
+            (g.sight.x1 <= x and x < g.sight.x2 and
+             g.sight.y1 <= y and y < g.sight.y2)) then
+          local ix = (x - g.sight.x0) / DX
+          local iy = (y - g.sight.y0) / DY
+          local id = map_id * NUM_TILE_MAP_NODES + iy * (2 * SIGHT_RADIUS) + ix + 1
+          if 1 <= id and id <= #inputs then
+            inputs[id] = val
+          else
+            emu.print("Invalid tile:", map_id, x, y, val, ix, iy, id, g.sight)
+          end
+        end
       end
     end
   end
@@ -154,7 +159,6 @@ end
 
 function basicGenome()
   local genome = newGenome()
-  local innovation = 1
 
   genome.maxneuron = Inputs
   mutate(genome)
@@ -988,7 +992,7 @@ SHOW_TILE_MAP = false
 SHOW_OBJECTS = false
 SHOW_BANNER = true
 
-function Show(g)
+function Show(g, genome)
   if SHOW_GRID then
     color = {0xFF, 0xFF, 0xFF, 0x80}
     for x = X1,X2,DX do
@@ -1041,7 +1045,7 @@ function Show(g)
     gui.drawtext(5, 10, "Gen " .. pool.generation .. " species " ..
         pool.currentSpecies .. " genome " .. pool.currentGenome ..
         " (" .. math.floor(measured/total*100) .. "%)", 'black', 'clear')
-    gui.drawtext(5, 18, "Fitness: " .. g.score, 'black', 'clear')
+    gui.drawtext(5, 18, "Fitness: " .. genome.fitness, 'black', 'clear')
     gui.drawtext(100, 18, "Max Fitness: " .. pool.maxFitness, 'black', 'clear')
   end
 end
@@ -1060,6 +1064,7 @@ emu.print("Running NEAT Galaxian")
 
 -- Reset then enter menu then save.
 emu.softreset()
+emu.speedmode("turbo")
 for k=1,2 do
   SkipFrames(60)
   for i=1,10 do
@@ -1080,6 +1085,7 @@ if not loadPool() then
 end
 
 local controller = nil
+local prev_tile_maps = {}
 
 while true do
   local g = {}
@@ -1092,28 +1098,42 @@ while true do
   g.lifes = memory.readbyte(0x42)
   g.sight = GetSight(g.galaxian_gx)
   g.tile_map = GetTileMap(g.enemies, g.bullets, g.sight)
+  g.prev_tile_maps = prev_tile_maps
+  g.prev_tile_maps[0] = tile_map
 
   local species = pool.species[pool.currentSpecies]
   local genome = species.genomes[pool.currentGenome]
+
+  genome.fitness = g.score + math.floor(pool.currentFrame / 20) + 1
   if genome.network == nil then
     generateNetwork(genome)
   end
-  if controller == nil or pool.currentFrame % 5 == 0 then
+
+  -- React every 10 frames.
+  if controller == nil or pool.currentFrame % 10 == 0 then
     controller = evaluateNetwork(genome.network, getInputs(g))
   end
   joypad.set(1, controller)
 
+  -- Add a snapshot for every 30 frames.
+  if pool.currentFrame % 30 == 0 then
+    for i = NUM_SNAPSHOTS-1,2 do
+      prev_tile_maps[i] = prev_tile_maps[i-1]
+    end
+    prev_tile_maps[1] = g.tile_map
+  end
+
   -- Reset if dead.
   if g.lifes < 2 then
-    genome.fitness = g.score + pool.currentFrame + 1
-    
     if genome.fitness > pool.maxFitness then
       pool.maxFitness = genome.fitness
       savePool()
     end
     
     emu.print("Gen " .. pool.generation .. " species " .. pool.currentSpecies ..
-        " genome " .. pool.currentGenome .. " fitness: " .. genome.fitness)
+        " genome " .. pool.currentGenome .. " neurons: " .. genome.maxneuron ..
+        " genes: " .. #genome.genes ..  " fitness: " .. genome.fitness ..
+        " score: " .. g.score)
 
     savestate.load(INIT_STATE);
     pool.currentFrame = 0
@@ -1130,7 +1150,7 @@ while true do
     generateNetwork(genome)
   end
 
-  Show(g)
+  Show(g, genome)
 
   pool.currentFrame = pool.currentFrame + 1
   emu.frameadvance();
