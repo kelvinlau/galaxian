@@ -21,9 +21,8 @@ Y1 = 42
 Y2 = 222
 DY = 12
 
--- TODO: Tune to 8, 8.
-SIGHT_X = 7
-SIGHT_Y = 10
+SIGHT_X = 12
+SIGHT_Y = 8
 
 ---- NN and GA constants ----
 
@@ -964,7 +963,7 @@ function GetTileMap(enemies, bullets, sight)
   for _, b in pairs(bullets) do
     local gx = (b.x - X1) - (b.x - X1) % DX + X1
     local gy = (b.y - Y1) - (b.y - Y1) % DY + Y1
-    Add(gx, gy, 1) -- TODO: Use -1 for bullets?
+    Add(gx, gy, 1) -- TODO: Add another layer for bullets.
   end
   return map
 end
@@ -995,9 +994,12 @@ SHOW_COOR = false
 SHOW_TILE_MAP = true
 SHOW_OBJECTS = false
 SHOW_BANNER = true
+SHOW_AI_VISION = true
 
 function Show(g, genome)
-  gui.drawbox(0, 0, 256, 256, 'black', 'clear')
+  if SHOW_AI_VISION then
+    gui.drawbox(0, 0, 256, 256, 'black', 'clear')
+  end
   if SHOW_GRID then
     color = {0xFF, 0xFF, 0xFF, 0x80}
     for x = X1,X2,DX do
@@ -1109,8 +1111,8 @@ while true do
   local species = pool.species[pool.cur_species]
   local genome = species.genomes[pool.cur_genome]
 
-  -- TODO: Tune 20 -> 3, or make this coefficient as a param in genome?
-  genome.fitness = g.score + math.floor(pool.cur_frame / 20) + 1
+  -- TODO: Tune this, or make this coefficient as a param in genome?
+  genome.fitness = g.score + math.floor(pool.cur_frame / 2) + 1
   if genome.network == nil then
     GenerateNetwork(genome)
   end
