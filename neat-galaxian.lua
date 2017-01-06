@@ -9,7 +9,7 @@
 -- * Run on a cluster using GUI-less emulation.
 -- * Time traveling.
 -- * Learn from human (back propagation).
--- * galaxian_x + dx instead of galaxian_gx + dx
+-- * Add "how many enemies/bullets survived" to fitness.
 
 ---- Configs ----
 
@@ -94,8 +94,8 @@ function GetInputs(g)
   end
   -- galaxian_x scaled in [0, 1]
   inputs[#inputs+1] = (g.galaxian_x - X1) / (X2 - X1)
-  -- galaxian_x % DX
-  inputs[#inputs+1] = g.galaxian_x % DX / DX
+  -- XXX: deprecated: galaxian_x % DX
+  inputs[#inputs+1] = 0
   -- bias input neuron
   inputs[#inputs+1] = 1
   return inputs
@@ -920,16 +920,20 @@ function GetBullets()
 end
 
 -- Sight rectangle.
-function GetSight(galaxian_gx)
+function GetSight(galaxian_x)
   local sight = {
-    x0 = galaxian_gx - SIGHT_X * DX,
+    x0 = galaxian_x - SIGHT_X * DX,
     y0 = Y2 - SIGHT_Y * DY,
   }
-  sight.x1 = math.max(galaxian_gx - SIGHT_X * DX, X1)
-  sight.x2 = math.min(galaxian_gx + SIGHT_X * DX, X2)
+  sight.x1 = galaxian_x - math.min(math.floor((galaxian_x-X1)/DX), SIGHT_X) * DX
+  sight.x2 = galaxian_x + math.min(math.floor((X2-galaxian_x)/DX), SIGHT_X) * DX
   sight.y1 = sight.y0
   sight.y2 = Y2
   return sight
+end
+
+function Round(x, x1, dx)
+  return (x-x1) - (x-x1)%dx + x1
 end
 
 -- Tile map.
@@ -951,10 +955,9 @@ function GetTileMap(enemies, bullets, sight)
   end
 
   for _, e in pairs(enemies) do
-    local gx = (e.x - X1) - (e.x - X1) % DX + X1
-    local gy = (e.y - Y1) - (e.y - Y1) % DY + Y1
+    local gx = Round(e.x, sight.x1, DX)
+    local gy = Round(e.y, sight.y1, DY)
     local cx = gx + DX / 2
-    local cy = gy + DY / 2
     local pxl = math.max(cx - e.x, 0) / DX
     local pxr = math.max(e.x - cx, 0) / DX
     local pxc = 1 - pxl - pxr
@@ -963,8 +966,8 @@ function GetTileMap(enemies, bullets, sight)
     Add(gx + DX, gy, e.w * pxr)
   end
   for _, b in pairs(bullets) do
-    local gx = (b.x - X1) - (b.x - X1) % DX + X1
-    local gy = (b.y - Y1) - (b.y - Y1) % DY + Y1
+    local gx = Round(b.x, sight.x1, DX)
+    local gy = Round(b.y, sight.y1, DY)
     Add(gx, gy, -1)  -- TODO: better add a layer for bullets than using -1 here.
   end
   return map
@@ -1004,15 +1007,15 @@ function Show(g, genome)
   end
   if SHOW_GRID then
     color = {0xFF, 0xFF, 0xFF, 0x80}
-    for x = X1,X2,DX do
-      gui.drawline(x, Y1, x, Y2, color)
+    for x = g.sight.x1, g.sight.x2, DX do
+      gui.drawline(x, g.sight.y1, x, g.sight.y2, color)
       if SHOW_COOR then
         local y = 165 + (x % (3 * DX) / DX) * DY
         gui.drawtext(x, y, x)
       end
     end
-    for y = Y1,Y2,DY do
-      gui.drawline(X1, y, X2, y, color)
+    for y = g.sight.y1, g.sight.y2, DY do
+      gui.drawline(g.sight.x1, y, g.sight.x2, y, color)
       if SHOW_COOR then
         gui.drawtext(5, y, y)
       end
@@ -1031,7 +1034,6 @@ function Show(g, genome)
         gui.drawbox(x, y, x + DX, y + DY, color, 'clear')
       end
     end
-    gui.drawbox(g.galaxian_gx, Y2 - DY, g.galaxian_gx + DX, Y2, {0, 0xFF, 0, 0x80}, 'clear')
   end
 
   if SHOW_OBJECTS then
@@ -1112,13 +1114,12 @@ local prev_tile_maps = {}
 while true do
   local g = {}
   g.galaxian_x = (memory.readbyte(0xE4) + 124) % 256 + 4
-  g.galaxian_gx = (g.galaxian_x - X1) - (g.galaxian_x - X1) % DX + X1
   g.enemies = GetEnemies()
   g.bullets = GetBullets()
   g.missile = GetMissile()
   g.score = GetScore()
   g.lifes = memory.readbyte(0x42)
-  g.sight = GetSight(g.galaxian_gx)
+  g.sight = GetSight(g.galaxian_x)
   g.tile_map = GetTileMap(g.enemies, g.bullets, g.sight)
   g.prev_tile_maps = prev_tile_maps
   g.prev_tile_maps[0] = tile_map
