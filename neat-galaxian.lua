@@ -15,14 +15,17 @@
 
 WORK_DIR = "Z:/Users/kelvinlau/neat"
 FILENAME = "galaxian.v4.pool"
+
 PLAY_TOP = false
+READ_ONLY = true
+HUMAN_PLAY = false
 
 ---- Game constants ----
 
 BUTTONS = {"A", "left", "right"}
 
-X1 = 16
-X2 = 240
+X1 = 0
+X2 = 256
 DX = 8
 Y1 = 42
 Y2 = 222
@@ -64,6 +67,7 @@ function GetInputs(g)
   local inputs = {}
   -- tile_map (last several snapshots)
   -- TODO: enemy type?
+  -- TODO: fix multiple gridify.
   for id = 1,NUM_TILE_MAP_NODES * NUM_SNAPSHOTS do
     inputs[id] = 0
   end
@@ -73,8 +77,8 @@ function GetInputs(g)
         if (map_id == 0 or
             (g.sight.x1 <= x and x < g.sight.x2 and
              g.sight.y1 <= y and y < g.sight.y2)) then
-          local ix = (x - g.sight.x0) / DX
-          local iy = (y - g.sight.y0) / DY
+          local ix = math.floor((x - g.sight.x0) / DX)
+          local iy = math.floor((y - g.sight.y0) / DY)
           local id = map_id * NUM_TILE_MAP_NODES + iy * (2 * SIGHT_X) + ix + 1
           if 1 <= id and id <= #inputs then
             inputs[id] = val
@@ -795,6 +799,9 @@ function WriteFile(filename)
 end
 
 function SavePool()
+  if READ_ONLY then
+    return
+  end
   WriteFile("backup." .. pool.generation .. "." .. FILENAME)
   WriteFile(FILENAME)
 end
@@ -956,7 +963,7 @@ function GetTileMap(enemies, bullets, sight)
 
   for _, e in pairs(enemies) do
     local gx = Round(e.x, sight.x1, DX)
-    local gy = Round(e.y, sight.y1, DY)
+    local gy = Round(e.y, sight.y1, DY) -- TODO: RoundUp.
     local cx = gx + DX / 2
     local pxl = math.max(cx - e.x, 0) / DX
     local pxr = math.max(e.x - cx, 0) / DX
@@ -977,7 +984,7 @@ end
 function GetMissile()
   local x = memory.readbyte(0x283)
   local y = memory.readbyte(0x280)
-  if x > 0 and y > 0 then
+  if y ~= 200 then
     return {x=x, y=y}
   else
     return nil
@@ -994,7 +1001,7 @@ end
 
 ---- UI ----
 
-SHOW_GRID = false
+SHOW_GRID = true
 SHOW_COOR = false
 SHOW_TILE_MAP = true
 SHOW_OBJECTS = false
@@ -1006,7 +1013,7 @@ function Show(g, genome)
     gui.drawbox(0, 0, 256, 256, 'black', 'clear')
   end
   if SHOW_GRID then
-    color = {0xFF, 0xFF, 0xFF, 0x80}
+    local color = {0xFF, 0xFF, 0xFF, 0x80}
     for x = g.sight.x1, g.sight.x2, DX do
       gui.drawline(x, g.sight.y1, x, g.sight.y2, color)
       if SHOW_COOR then
@@ -1020,6 +1027,10 @@ function Show(g, genome)
         gui.drawtext(5, y, y)
       end
     end
+    -- missile aimming ray
+    if g.missile == nil then
+      gui.drawline(g.galaxian_x, g.sight.y1, g.galaxian_x, g.sight.y2, 'red')
+    end
   end
 
   if SHOW_TILE_MAP then
@@ -1027,9 +1038,9 @@ function Show(g, genome)
       for y, val in pairs(row) do
         local color = nil
         if val >= 0 then
-          color = {0, 0, 0xFF, 0x40 * val} -- enemies are blue
+          color = {0, 0, 0xFF, 0x80 * val} -- enemies are blue
         else
-          color = {0xFF, 0, 0, 0x40 * -val} -- bullets are red
+          color = {0xFF, 0, 0, 0x80 * -val} -- bullets are red
         end
         gui.drawbox(x, y, x + DX, y + DY, color, 'clear')
       end
@@ -1064,6 +1075,9 @@ function Show(g, genome)
         " (" .. math.floor(measured/total*100) .. "%)", 'black', 'clear')
     gui.drawtext(5, 18, "Fitness: " .. genome.fitness, 'black', 'clear')
     gui.drawtext(100, 18, "Max Fitness: " .. pool.max_fitness, 'black', 'clear')
+  end
+  if g.missile ~= nil then
+    gui.drawtext(5, 28, g.missile.x .. " " .. g.missile.y)
   end
 end
 
@@ -1108,6 +1122,10 @@ if PLAY_TOP then
   emu.speedmode("normal")
 end
 
+if HUMAN_PLAY then
+  emu.speedmode("normal")
+end
+
 local controller = nil
 local prev_tile_maps = {}
 
@@ -1136,7 +1154,9 @@ while true do
   if controller == nil or pool.cur_frame % 10 == 0 then
     controller = EvaluateNetwork(genome.network, GetInputs(g))
   end
-  joypad.set(1, controller)
+  if not HUMAN_PLAY then
+    joypad.set(1, controller)
+  end
 
   -- Add a snapshot for every 30 frames.
   if pool.cur_frame % 30 == 0 then
