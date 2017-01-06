@@ -17,7 +17,7 @@ WORK_DIR = "Z:/Users/kelvinlau/neat"
 FILENAME = "galaxian.v4.pool"
 
 PLAY_TOP = false
-READ_ONLY = true
+READ_ONLY = false
 HUMAN_PLAY = false
 
 ---- Game constants ----
@@ -802,7 +802,7 @@ function SavePool()
   if READ_ONLY then
     return
   end
-  WriteFile("backup." .. pool.generation .. "." .. FILENAME)
+  WriteFile(string.format("backup.%04d.%s", pool.generation, FILENAME))
   WriteFile(FILENAME)
 end
 
@@ -1075,9 +1075,6 @@ function Show(g, genome)
         " (" .. math.floor(measured/total*100) .. "%)", 'black', 'clear')
     gui.drawtext(5, 18, "Fitness: " .. genome.fitness, 'black', 'clear')
     gui.drawtext(100, 18, "Max Fitness: " .. pool.max_fitness, 'black', 'clear')
-  end
-  if g.missile ~= nil then
-    gui.drawtext(5, 28, g.missile.x .. " " .. g.missile.y)
   end
 end
 
