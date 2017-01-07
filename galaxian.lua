@@ -9,9 +9,8 @@
 -- * Run on a cluster using GUI-less emulation.
 -- * Time traveling.
 -- * Learn from human (back propagation).
--- * Hidden layers in BasicGenome.
+-- * Hidden layers in BasicGenome?
 -- * Incoming enemies and bullets' coordinates as inputs (v7).
--- * Only mutate input neurons with non-zero values ever.
 
 ---- Configs ----
 
@@ -91,6 +90,18 @@ end
 
 ALL_INPUTS = GetAllInputs()
 
+recent_inputs = {}
+
+function AddToRecentInputs(inputs)
+  for id, _ in pairs(inputs) do
+    recent_inputs[id] = pool.generation
+  end
+  recent_inputs["m"] = pool.generation
+  recent_inputs["gx"] = pool.generation
+  recent_inputs["bias"] = pool.generation
+  recent_inputs["rnd"] = pool.generation
+end
+
 function InSight(sight, t)
   return sight.x1 <= t.x and t.x < sight.x2 and sight.y1 <= t.y and t.y < sight.y2
 end
@@ -144,7 +155,7 @@ function GetInputs(recent_games)
 
   -- has misile or not
   -- TODO: maybe misile_y?
-  if g.missile ~= nil then
+  if g.missile == nil then
     inputs["m"] = 1
   else
     inputs["m"] = 0
@@ -279,6 +290,7 @@ end
 function NewNeuron()
   local neuron = {}
   neuron.incoming = {}
+  neuron.outgoing = {}
   neuron.value = 0.0
   
   return neuron
@@ -305,12 +317,18 @@ function GenerateNetwork(genome)
       end
       local out = network.neurons[gene.out]
       table.insert(out.incoming, gene)
+      if DEBUG and gene.out == "o3" then
+        emu.print(gene, #out.incoming)
+      end
       if network.neurons[gene.src] == nil then
         network.neurons[gene.src] = NewNeuron()
         network.num_neurons = network.num_neurons + 1
       end
+      local src = network.neurons[gene.src]
+      table.insert(src.outgoing, gene)
     end
   end
+  -- emu.print(network)
 
   -- Topological sort.
   local deg = {}
@@ -325,16 +343,25 @@ function GenerateNetwork(genome)
   while head < #queue do
     local neuron = network.neurons[queue[head]]
     head = head + 1
-    for _, gene in pairs(neuron.incoming) do
-      local src = gene.src
-      deg[src] = deg[src] - 1
-      if deg[src] == 0 then
-        queue[#queue+1] = src
+    for _, gene in pairs(neuron.outgoing) do
+      local out = gene.out
+      deg[out] = deg[out] - 1
+      if deg[out] == 0 then
+        queue[#queue+1] = out
       end
     end
   end
 
-  network.reversed_topological_ids = queue
+  network.topological_ids = queue
+  if DEBUG then
+    emu.print("queue:", queue)
+    for i = 1, #network.topological_ids do
+      local id = network.topological_ids[i]
+      local incoming = network.neurons[id].incoming
+      emu.print(i, id, #incoming, network.neurons[id])
+    end
+    emu.print("")
+  end
   
   genome.network = network
 end
@@ -343,13 +370,20 @@ function EvaluateNetwork(network, inputs)
   for id, val in pairs(inputs) do
     if network.neurons[id] ~= nil then
       network.neurons[id].value = val
+      -- if DEBUG then
+      --   emu.print("Input:", id, val)
+      -- end
     end
   end
 
   -- Feed forward.
   -- TODO: Skip input neurons.
-  for i = #network.reversed_topological_ids, 1, -1 do
-    local neuron = network.neurons[network.reversed_topological_ids[i]]
+  for i = 1, #network.topological_ids do
+    local id = network.topological_ids[i]
+    local neuron = network.neurons[id]
+    -- if DEBUG then
+    --   emu.print(i, id, #neuron.incoming)
+    -- end
     if #neuron.incoming > 0 then
       local sum = 0
       for j = 1,#neuron.incoming do
@@ -358,6 +392,9 @@ function EvaluateNetwork(network, inputs)
         sum = sum + gene.weight * src.value
       end
       neuron.value = ReLu(sum)
+      if DEBUG then
+        emu.print(id, neuron.value)
+      end
     end
   end
   
@@ -435,8 +472,10 @@ end
 function RandomNeuron(genes, include_input, include_output)
   local neurons = {}
   if include_input then
-    for _, id in pairs(ALL_INPUTS) do
-      neurons[id] = true
+    for id, last_seen_generation in pairs(recent_inputs) do
+      if last_seen_generation >= pool.generation-2 then
+        neurons[id] = true
+      end
     end
   end
   if include_output then
@@ -837,6 +876,8 @@ function InitializePool()
 
   pool = NewPool()
 
+  AddToRecentInputs({})
+
   for i=1,POPULATION do
     basic = BasicGenome()
     AddToSpecies(basic)
@@ -1174,27 +1215,26 @@ function Show(recent_games, genome)
       if id == "o3" then
         return {x=g.galaxian_x, y=y}
       end
-      local middle_x = 128
       y = y - DY
       if IsHiddenNeuron(id) then
         local hid = tonumber(id:sub(2))
         if hid % 2 == 0 then
           hid = -hid-1
         end
-        return {x=middle_x + hid * 4, y=y}
+        return {x=g.galaxian_x + hid * 4, y=y}
       end
       y = y - DY
       if id == "m" then
-        return {x=middle_x-2*DX, y=y}
+        return {x=g.galaxian_x-2*DX, y=y}
       end
       if id == "gx" then
-        return {x=middle_x-1*DX, y=y}
+        return {x=g.galaxian_x-1*DX, y=y}
       end
       if id == "bias" then
-        return {x=middle_x+1*DX, y=y}
+        return {x=g.galaxian_x+1*DX, y=y}
       end
       if id == "rnd" then
-        return {x=middle_x+2*DX, y=y}
+        return {x=g.galaxian_x+2*DX, y=y}
       end
       local kind = id:sub(1, 1)
       if kind == 's' then
@@ -1214,18 +1254,14 @@ function Show(recent_games, genome)
       return nil
     end
     function DrawNeuron(n)
-      gui.drawbox(n.x-2, n.y-2, n.x+2, n.y+2, 'yellow', 'clear')
+      if X1 <= n.x and n.x <= X2 then
+        gui.drawbox(n.x-2, n.y-2, n.x+2, n.y+2, 'yellow', 'clear')
+      end
     end
     for _, gene in pairs(genome.genes) do
       if gene.enabled then
         local src = NeuronPosition(gene.src)
         local out = NeuronPosition(gene.out)
-        if src.x > 252 then
-          emu.print(gene.src, src)
-        end
-        if out.x > 252 then
-          emu.print(gene.out, out)
-        end
         if gene.weight ~= 0 then
           local color
           if gene.weight > 0 then
@@ -1242,6 +1278,12 @@ function Show(recent_games, genome)
           DrawNeuron(out)
         end
       end
+    end
+    for _, id in pairs({"m", "gx", "bias", "rnd"}) do
+      DrawNeuron(NeuronPosition(id))
+    end
+    for o=1,NUM_OUTPUT_NEURONS do
+      DrawNeuron(NeuronPosition("o"..o))
     end
   end
 
@@ -1319,6 +1361,7 @@ end
 
 local controller = nil
 local recent_games = {}
+local survived_incomings = 0
 
 while true do
   local g = {}
@@ -1337,14 +1380,16 @@ while true do
   local species = pool.species[pool.cur_species]
   local genome = species.genomes[pool.cur_genome]
 
-  genome.fitness = g.score + GetSurvivedIncomings(recent_games) * 100 + 1
+  genome.fitness = math.max(g.score + survived_incomings * 100, 1)
   if genome.network == nil then
     GenerateNetwork(genome)
   end
 
   -- React every 10 frames.
   if controller == nil or pool.cur_frame % 10 == 0 then
-    controller = EvaluateNetwork(genome.network, GetInputs(recent_games))
+    local inputs = GetInputs(recent_games)
+    AddToRecentInputs(inputs)
+    controller = EvaluateNetwork(genome.network, inputs)
   end
   if not HUMAN_PLAY then
     joypad.set(1, controller)
@@ -1352,6 +1397,7 @@ while true do
 
   -- Add a snapshot for every 30 frames.
   if pool.cur_frame % 30 == 0 then
+    survived_incomings = survived_incomings + GetSurvivedIncomings(recent_games)
     for i = NUM_SNAPSHOTS-1,2,-1 do
       if recent_games[i-1] ~= nil then
         recent_games[i] = recent_games[i-1]
@@ -1359,6 +1405,7 @@ while true do
     end
     recent_games[1] = g
   end
+
   pool.cur_frame = pool.cur_frame + 1
 
   Show(recent_games, genome)
@@ -1377,6 +1424,7 @@ while true do
 
     savestate.load(INIT_STATE);
     recent_games = {}
+    survived_incomings = 0
     pool.cur_frame = 0
     ClearJoypad()
 
