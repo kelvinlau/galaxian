@@ -317,9 +317,6 @@ function GenerateNetwork(genome)
       end
       local out = network.neurons[gene.out]
       table.insert(out.incoming, gene)
-      if DEBUG and gene.out == "o3" then
-        emu.print(gene, #out.incoming)
-      end
       if network.neurons[gene.src] == nil then
         network.neurons[gene.src] = NewNeuron()
         network.num_neurons = network.num_neurons + 1
@@ -354,7 +351,6 @@ function GenerateNetwork(genome)
 
   network.topological_ids = queue
   if DEBUG then
-    emu.print("queue:", queue)
     for i = 1, #network.topological_ids do
       local id = network.topological_ids[i]
       local incoming = network.neurons[id].incoming
@@ -370,9 +366,6 @@ function EvaluateNetwork(network, inputs)
   for id, val in pairs(inputs) do
     if network.neurons[id] ~= nil then
       network.neurons[id].value = val
-      -- if DEBUG then
-      --   emu.print("Input:", id, val)
-      -- end
     end
   end
 
@@ -381,9 +374,6 @@ function EvaluateNetwork(network, inputs)
   for i = 1, #network.topological_ids do
     local id = network.topological_ids[i]
     local neuron = network.neurons[id]
-    -- if DEBUG then
-    --   emu.print(i, id, #neuron.incoming)
-    -- end
     if #neuron.incoming > 0 then
       local sum = 0
       for j = 1,#neuron.incoming do
@@ -392,9 +382,6 @@ function EvaluateNetwork(network, inputs)
         sum = sum + gene.weight * src.value
       end
       neuron.value = ReLu(sum)
-      if DEBUG then
-        emu.print(id, neuron.value)
-      end
     end
   end
   
