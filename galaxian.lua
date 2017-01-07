@@ -10,6 +10,8 @@
 -- * Time traveling.
 -- * Learn from human (back propagation).
 -- * Hidden layers in BasicGenome.
+-- * Incoming enemies and bullets' coordinates as inputs (v7).
+-- * Only mutate input neurons with non-zero values ever.
 
 ---- Configs ----
 
@@ -19,6 +21,7 @@ FILENAME = "galaxian.v8.pool"
 PLAY_TOP = false
 READ_ONLY = false
 HUMAN_PLAY = false
+DEBUG = false
 
 SHOW_GRID = false
 SHOW_COOR = false
@@ -26,6 +29,7 @@ SHOW_TILE_MAP = true
 SHOW_OBJECTS = false
 SHOW_BANNER = true
 SHOW_AI_VISION = true
+SHOW_NETWORK = true
 
 ---- NN input ----
 
@@ -41,7 +45,7 @@ NUM_SNAPSHOTS = 3
 
 ---- Neuron Evolution ----
 
-NUM_OUTPUT_NEURONS = 2
+NUM_OUTPUT_NEURONS = 3
 
 POPULATION = 300
 DELTA_DISJOINT = 2.0
@@ -62,24 +66,65 @@ ENABLE_MUTATION_CHANCE = 0.2
 
 ----
 
+function GetAllInputs()
+  local ids = {}
+  for gid = 0, NUM_SNAPSHOTS-1 do
+    for ix = -SIGHT_X, SIGHT_X-1 do
+      ids[#ids+1] = string.format("%s%d.%03d", "s", gid, ix)
+    end
+  end
+  for _, t in pairs({"i", "b"}) do
+    for gid = 0, NUM_SNAPSHOTS-1 do
+      for ix = -SIGHT_X, SIGHT_X-1 do
+        for iy = 0, SIGHT_Y-1 do
+          ids[#ids+1] = string.format("%s%d.%03d,%03d", t, gid, ix, iy)
+        end
+      end
+    end
+  end
+  ids[#ids+1] = "m"
+  ids[#ids+1] = "gx"
+  ids[#ids+1] = "bias"
+  ids[#ids+1] = "rnd"
+  return ids
+end
+
+ALL_INPUTS = GetAllInputs()
+
 function InSight(sight, t)
   return sight.x1 <= t.x and t.x < sight.x2 and sight.y1 <= t.y and t.y < sight.y2
+end
+
+function InSightX(sight, t)
+  return sight.x1 <= t.x and t.x < sight.x2
 end
 
 function GetInputs(recent_games)
   local inputs = {}
   local g = recent_games[0]
 
+  function AddVal(id, val)
+    if inputs[id] == nil then
+      inputs[id] = val
+    else
+      inputs[id] = inputs[id] + val
+    end
+  end
+
+  function AddStillEnemy(prefix, e, val)
+    if InSightX(g.sight, e) then
+      local ix = math.floor((e.x - g.galaxian_x) / DX)
+      local id = string.format("%s.%03d", prefix, ix)
+      AddVal(id, val)
+    end
+  end
+
   function AddTile(prefix, t, val)
     if InSight(g.sight, t) then
       local ix = math.floor((t.x - g.galaxian_x) / DX)
       local iy = math.floor((t.y - g.sight.y0) / DY)
       local id = string.format("%s.%03d,%03d", prefix, ix, iy)
-      if inputs[id] == nil then
-        inputs[id] = val
-      else
-        inputs[id] = inputs[id] + val
-      end
+      AddVal(id, val)
     end
   end
 
@@ -87,7 +132,7 @@ function GetInputs(recent_games)
   -- TODO: enemy type?
   for gid, game in pairs(recent_games) do
     for _, e in pairs(game.still_enemies) do
-      AddTile("s" .. gid, e, 1)
+      AddStillEnemy("s" .. gid, e, 1)
     end
     for _, e in pairs(game.incoming_enemies) do
       AddTile("i" .. gid, e, 1)
@@ -114,27 +159,24 @@ function GetInputs(recent_games)
   -- random input neuron
   inputs["rnd"] = math.random(-1, 1)
 
-  return inputs
-end
-
--- TODO: cache this.
-function GetAllInputs()
-  local ids = {}
-  for _, t in pairs({"s", "i", "b"}) do
-    for gid = 0, NUM_SNAPSHOTS-1 do
-      for ix = 0, 2*SIGHT_X-1 do
-        for iy = 0, SIGHT_Y-1 do
-          -- TODO: Still enemies can't be lower than some y.
-          ids[#ids+1] = string.format("%s%d.%03d,%03d", t, gid, ix, iy)
-        end
+  if DEBUG then
+    for id, _ in pairs(inputs) do
+      if not LinearSearch(ALL_INPUTS, id) then
+        emu.print("Unexpected input:", id)
       end
     end
   end
-  ids[#ids+1] = "m"
-  ids[#ids+1] = "gx"
-  ids[#ids+1] = "bias"
-  ids[#ids+1] = "rnd"
-  return ids
+
+  return inputs
+end
+
+function LinearSearch(a, x)
+  for _, v in pairs(a) do
+    if v == x then
+      return true
+    end
+  end
+  return false
 end
 
 function Sigmoid(x)
@@ -269,7 +311,7 @@ function GenerateNetwork(genome)
       end
     end
   end
-  
+
   -- Topological sort.
   local deg = {}
   local queue = {}
@@ -320,18 +362,21 @@ function EvaluateNetwork(network, inputs)
   end
   
   local outputs = {}
-  local dir = network.neurons["o1"].value
-  if dir <= -0.5 then
+  local l = network.neurons["o1"].value
+  local r = network.neurons["o2"].value
+  local d = r-l
+  local threshold = 0.1
+  if l > r + threshold then
     outputs["left"] = true
     outputs["right"] = false
-  else if dir >= 0.5 then
+  else if r > l + threshold then
     outputs["left"] = false
     outputs["right"] = true
   else
     outputs["left"] = false
     outputs["right"] = false
   end end
-  local fire = network.neurons["o2"].value
+  local fire = network.neurons["o3"].value
   if fire > 0 then
     outputs["A"] = true
   else
@@ -376,21 +421,21 @@ function Crossover(g1, g2)
 end
 
 function IsInputNeuron(id)
-  return id[0] ~= "h" and id[0] ~= "o"
+  return not IsHiddenNeuron(id) and not IsOutputNeuron(id)
 end
 
 function IsHiddenNeuron(id)
-  return id[0] == "h"
+  return id:sub(1, 1) == "h"
 end
 
 function IsOutputNeuron(id)
-  return id[0] == "o"
+  return id:sub(1, 1) == "o"
 end
 
 function RandomNeuron(genes, include_input, include_output)
   local neurons = {}
   if include_input then
-    for _, id in pairs(GetAllInputs()) do
+    for _, id in pairs(ALL_INPUTS) do
       neurons[id] = true
     end
   end
@@ -440,7 +485,7 @@ function PointMutate(genome)
   for i=1,#genome.genes do
     local gene = genome.genes[i]
     if math.random() < PERTURB_CHANCE then
-      gene.weight = gene.weight + math.random() * step*2 - step
+      gene.weight = gene.weight + step * (math.random()*2-1)
     else
       gene.weight = math.random()*4-2
     end
@@ -472,6 +517,7 @@ function NeuronMutate(genome)
   end
 
   genome.hidden_neurons = genome.hidden_neurons + 1
+  local hid = string.format("h%03d", genome.hidden_neurons)
 
   local gene = genome.genes[math.random(1,#genome.genes)]
   if not gene.enabled then
@@ -480,14 +526,14 @@ function NeuronMutate(genome)
   gene.enabled = false
   
   local gene1 = CopyGene(gene)
-  gene1.out = string.format("h%03d", genome.hidden_neurons)
+  gene1.out = hid
   gene1.weight = 1.0
   gene1.innovation = NewInnovation()
   gene1.enabled = true
   table.insert(genome.genes, gene1)
   
   local gene2 = CopyGene(gene)
-  gene2.src = string.format("h%03d", genome.hidden_neurons)
+  gene2.src = hid
   gene2.innovation = NewInnovation()
   gene2.enabled = true
   table.insert(genome.genes, gene2)
@@ -1034,6 +1080,10 @@ end
 
 ---- UI ----
 
+function IsTileNeuron(id)
+  return IsInputNeuron(id) and id:find("%.") ~= nil
+end
+
 function Show(recent_games, genome)
   local g = recent_games[0]
 
@@ -1058,16 +1108,23 @@ function Show(recent_games, genome)
     end
   end
 
-  local galaxian_y = Y2
   if SHOW_AI_VISION then
     -- missile aimming ray
     if g.missile == nil then
       gui.drawline(g.galaxian_x, g.sight.y1, g.galaxian_x, g.sight.y2, 'red')
     end
-    gui.drawbox(g.galaxian_x-2, galaxian_y-2, g.galaxian_x+2, galaxian_y+2, 'green', 'clear')
+    gui.drawbox(g.galaxian_x-2, g.galaxian_y-2, g.galaxian_x+2, g.galaxian_y+2, 'green', 'clear')
   end
 
   if SHOW_TILE_MAP then
+    function DrawStillEnemy(e, gid)
+      if InSightX(g.sight, e) then
+        local x = math.floor((e.x - g.sight.x0) / DX) * DX + g.sight.x0
+        local y = Y1+5*DY
+        local d = gid
+        gui.drawbox(x+d, y+d, x+DX-d, y+DY-d, 'blue', 'clear')
+      end
+    end
     function DrawTile(t, color, gid)
       if InSight(g.sight, t) then
         local x = math.floor((t.x - g.sight.x0) / DX) * DX + g.sight.x0
@@ -1080,7 +1137,7 @@ function Show(recent_games, genome)
       local game = recent_games[gid]
       if game ~= nil then
         for _, e in pairs(game.still_enemies) do
-          DrawTile(e, 'blue', gid)
+          DrawStillEnemy(e, gid)
         end
         for _, e in pairs(game.incoming_enemies) do
           DrawTile(e, 'blue', gid)
@@ -1102,7 +1159,90 @@ function Show(recent_games, genome)
     for _, b in pairs(g.bullets) do
       gui.drawbox(b.x - 4, b.y - 4, b.x + 4, b.y + 4, {0xFF, 0xFF, 0, 0x80}, 'clear')
     end
-    gui.drawbox(g.galaxian_x - 4, galaxian_y, g.galaxian_x + 4, galaxian_y + 8, 'green')
+    gui.drawbox(g.galaxian_x - 4, g.galaxian_y, g.galaxian_x + 4, g.galaxian_y + 8, 'green')
+  end
+
+  if SHOW_NETWORK then
+    function NeuronPosition(id)
+      local y = Y2 - DY
+      if id == "o1" then
+        return {x=g.galaxian_x-DX, y=y}
+      end
+      if id == "o2" then
+        return {x=g.galaxian_x+DX, y=y}
+      end
+      if id == "o3" then
+        return {x=g.galaxian_x, y=y}
+      end
+      local middle_x = 128
+      y = y - DY
+      if IsHiddenNeuron(id) then
+        local hid = tonumber(id:sub(2))
+        if hid % 2 == 0 then
+          hid = -hid-1
+        end
+        return {x=middle_x + hid * 4, y=y}
+      end
+      y = y - DY
+      if id == "m" then
+        return {x=middle_x-2*DX, y=y}
+      end
+      if id == "gx" then
+        return {x=middle_x-1*DX, y=y}
+      end
+      if id == "bias" then
+        return {x=middle_x+1*DX, y=y}
+      end
+      if id == "rnd" then
+        return {x=middle_x+2*DX, y=y}
+      end
+      local kind = id:sub(1, 1)
+      if kind == 's' then
+        local ix = tonumber(id:sub(4, 6))
+        local x = g.galaxian_x + ix*DX + DX/2
+        local y = Y1+6*DY
+        return {x=x, y=y}
+      end
+      if kind == 'i' or kind == 'b' then
+        local ix = tonumber(id:sub(4, 6))
+        local iy = tonumber(id:sub(8, 10))
+        local x = g.galaxian_x + ix*DX + DX/2
+        local y = g.sight.y0 + iy*DY + DY/2
+        return {x=x, y=y}
+      end
+      emu.print("Invalid id:", id)
+      return nil
+    end
+    function DrawNeuron(n)
+      gui.drawbox(n.x-2, n.y-2, n.x+2, n.y+2, 'yellow', 'clear')
+    end
+    for _, gene in pairs(genome.genes) do
+      if gene.enabled then
+        local src = NeuronPosition(gene.src)
+        local out = NeuronPosition(gene.out)
+        if src.x > 252 then
+          emu.print(gene.src, src)
+        end
+        if out.x > 252 then
+          emu.print(gene.out, out)
+        end
+        if gene.weight ~= 0 then
+          local color
+          if gene.weight > 0 then
+            color = {0, 0xFF, 0, 0xFF * gene.weight}
+          else
+            color = {0xFF, 0, 0, 0xFF * -gene.weight}
+          end
+          gui.drawline(src.x, src.y, out.x, out.y, color)
+        end
+        if not IsTileNeuron(gene.src) then
+          DrawNeuron(src)
+        end
+        if not IsTileNeuron(gene.out) then
+          DrawNeuron(out)
+        end
+      end
+    end
   end
 
   if SHOW_BANNER then
@@ -1144,6 +1284,7 @@ end
 ---- Script starts here ----
 
 emu.print("Running NEAT Galaxian")
+emu.print("Num input neurons:", #ALL_INPUTS)
 
 -- Reset then enter menu then save.
 emu.softreset()
@@ -1182,6 +1323,7 @@ local recent_games = {}
 while true do
   local g = {}
   g.galaxian_x = (memory.readbyte(0xE4) + 128) % 256
+  g.galaxian_y = Y2
   g.still_enemies = GetStillEnemies()
   g.incoming_enemies = GetIncomingEnemies()
   g.bullets = GetBullets()
