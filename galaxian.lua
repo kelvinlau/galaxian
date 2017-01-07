@@ -11,6 +11,7 @@
 -- * Learn from human (back propagation).
 -- * Hidden layers in BasicGenome?
 -- * Incoming enemies and bullets' coordinates as inputs (v7).
+-- * Recurrent Neural Network.
 
 ---- Configs ----
 
