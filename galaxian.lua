@@ -3,26 +3,31 @@
 --
 -- Inspired by MarI/O by SethBling.
 -- Intended for use on the FCEUX emulator.
--- Enter a level, then load this script.
+-- Load this script, it will reset the game and start evolving.
 --
 -- TODO ideas:
 -- * Run on a cluster using GUI-less emulation.
 -- * Time traveling.
 -- * Learn from human (back propagation).
--- * Add "how many enemies/bullets survived" to fitness.
+-- * Hidden layers in BasicGenome.
 
 ---- Configs ----
 
 WORK_DIR = "Z:/Users/kelvinlau/neat"
-FILENAME = "galaxian.v4.pool"
+FILENAME = "galaxian.v8.pool"
 
 PLAY_TOP = false
 READ_ONLY = false
 HUMAN_PLAY = false
 
----- Game constants ----
+SHOW_GRID = false
+SHOW_COOR = false
+SHOW_TILE_MAP = true
+SHOW_OBJECTS = false
+SHOW_BANNER = true
+SHOW_AI_VISION = true
 
-BUTTONS = {"A", "left", "right"}
+---- NN input ----
 
 X1 = 0
 X2 = 256
@@ -30,17 +35,13 @@ DX = 8
 Y1 = 42
 Y2 = 222
 DY = 12
-
-SIGHT_Y = 8
-SIGHT_X = 8
-
----- NN and GA constants ----
-
+SIGHT_X = 16
+SIGHT_Y = 15
 NUM_SNAPSHOTS = 3
-NUM_TILE_MAP_NODES = (SIGHT_X*2) * SIGHT_Y
-NUM_SPECIAL_INPUT_NODES = 4
-NUM_INPUT_NODES = NUM_TILE_MAP_NODES * NUM_SNAPSHOTS + NUM_SPECIAL_INPUT_NODES
-NUM_OUTPUT_NODES = #BUTTONS
+
+---- Neuron Evolution ----
+
+NUM_OUTPUT_NEURONS = 2
 
 POPULATION = 300
 DELTA_DISJOINT = 2.0
@@ -52,61 +53,96 @@ STALE_SPECIES = 15
 MUTATE_CONNECTION_CHANCE = 0.25
 PERTURB_CHANCE = 0.90
 CROSSOVER_CHANCE = 0.75
-LINK_MUTATION_CHANCE = 2.0
-NODE_MUTATION_CHANCE = 0.60
-SPECIAL_MUTATION_CHANCE = 0.40
+GENE_MUTATION_CHANCE = 2.0
+NEURON_MUTATION_CHANCE = 0.60
+BIAS_MUTATION_CHANCE = 0.40
 STEP_SIZE = 0.1
 DISABLE_MUTATION_CHANCE = 0.4
 ENABLE_MUTATION_CHANCE = 0.2
 
-MAX_NODES = 1000000
-
 ----
 
-function GetInputs(g)
+function InSight(sight, t)
+  return sight.x1 <= t.x and t.x < sight.x2 and sight.y1 <= t.y and t.y < sight.y2
+end
+
+function GetInputs(recent_games)
   local inputs = {}
-  -- tile_map (last several snapshots)
-  -- TODO: enemy type?
-  -- TODO: fix multiple gridify.
-  for id = 1,NUM_TILE_MAP_NODES * NUM_SNAPSHOTS do
-    inputs[id] = 0
+  local g = recent_games[0]
+
+  function AddTile(prefix, t, val)
+    if InSight(g.sight, t) then
+      local ix = math.floor((t.x - g.galaxian_x) / DX)
+      local iy = math.floor((t.y - g.sight.y0) / DY)
+      local id = string.format("%s.%03d,%03d", prefix, ix, iy)
+      if inputs[id] == nil then
+        inputs[id] = val
+      else
+        inputs[id] = inputs[id] + val
+      end
+    end
   end
-  for map_id, tile_map in pairs(g.prev_tile_maps) do
-    for x, row in pairs(tile_map) do
-      for y, val in pairs(row) do
-        if (map_id == 0 or
-            (g.sight.x1 <= x and x < g.sight.x2 and
-             g.sight.y1 <= y and y < g.sight.y2)) then
-          local ix = math.floor((x - g.sight.x0) / DX)
-          local iy = math.floor((y - g.sight.y0) / DY)
-          local id = map_id * NUM_TILE_MAP_NODES + iy * (2 * SIGHT_X) + ix + 1
-          if 1 <= id and id <= #inputs then
-            inputs[id] = val
-          else
-            emu.print("Invalid tile:", map_id, x, y, val, ix, iy, id, g.sight)
-          end
+
+  -- Tiles (last several snapshots)
+  -- TODO: enemy type?
+  for gid, game in pairs(recent_games) do
+    for _, e in pairs(game.still_enemies) do
+      AddTile("s" .. gid, e, 1)
+    end
+    for _, e in pairs(game.incoming_enemies) do
+      AddTile("i" .. gid, e, 1)
+    end
+    for _, b in pairs(game.bullets) do
+      AddTile("b" .. gid, b, 1)
+    end
+  end
+
+  -- has misile or not
+  -- TODO: maybe misile_y?
+  if g.missile ~= nil then
+    inputs["m"] = 1
+  else
+    inputs["m"] = 0
+  end
+
+  -- galaxian_x scaled in [0, 1]
+  inputs["gx"] = (g.galaxian_x - X1) / (X2 - X1)
+
+  -- bias input neuron
+  inputs["bias"] = 1
+
+  -- random input neuron
+  inputs["rnd"] = math.random(-1, 1)
+
+  return inputs
+end
+
+-- TODO: cache this.
+function GetAllInputs()
+  local ids = {}
+  for _, t in pairs({"s", "i", "b"}) do
+    for gid = 0, NUM_SNAPSHOTS-1 do
+      for ix = 0, 2*SIGHT_X-1 do
+        for iy = 0, SIGHT_Y-1 do
+          -- TODO: Still enemies can't be lower than some y.
+          ids[#ids+1] = string.format("%s%d.%03d,%03d", t, gid, ix, iy)
         end
       end
     end
   end
-  -- has misile or not
-  -- TODO: maybe misile_y?
-  if g.missile ~= nil then
-    inputs[#inputs+1] = 1
-  else
-    inputs[#inputs+1] = 0
-  end
-  -- galaxian_x scaled in [0, 1]
-  inputs[#inputs+1] = (g.galaxian_x - X1) / (X2 - X1)
-  -- XXX: deprecated: galaxian_x % DX
-  inputs[#inputs+1] = 0
-  -- bias input neuron
-  inputs[#inputs+1] = 1
-  return inputs
+  ids[#ids+1] = "m"
+  ids[#ids+1] = "gx"
+  ids[#ids+1] = "bias"
+  ids[#ids+1] = "rnd"
+  return ids
 end
 
 function Sigmoid(x)
   return 2/(1+math.exp(-4.9*x))-1
+end
+
+function ReLu(x)
+  return math.max(x, 0)
 end
 
 function NewInnovation()
@@ -118,7 +154,7 @@ function NewPool()
   local pool = {}
   pool.species = {}
   pool.generation = 0
-  pool.innovation = NUM_OUTPUT_NODES
+  pool.innovation = NUM_OUTPUT_NEURONS
   pool.cur_species = 1
   pool.cur_genome = 1
   pool.cur_frame = 0
@@ -141,13 +177,13 @@ function NewGenome()
   local genome = {}
   genome.genes = {}
   genome.fitness = 0
-  genome.max_neuron = 0
+  genome.hidden_neurons = 0
   genome.global_rank = 0
   genome.mutation_rates = {}
   genome.mutation_rates["connections"] = MUTATE_CONNECTION_CHANCE
-  genome.mutation_rates["link"] = LINK_MUTATION_CHANCE
-  genome.mutation_rates["special"] = SPECIAL_MUTATION_CHANCE
-  genome.mutation_rates["node"] = NODE_MUTATION_CHANCE
+  genome.mutation_rates["gene"] = GENE_MUTATION_CHANCE
+  genome.mutation_rates["bias"] = BIAS_MUTATION_CHANCE
+  genome.mutation_rates["neuron"] = NEURON_MUTATION_CHANCE
   genome.mutation_rates["enable"] = ENABLE_MUTATION_CHANCE
   genome.mutation_rates["disable"] = DISABLE_MUTATION_CHANCE
   genome.mutation_rates["step"] = STEP_SIZE
@@ -160,7 +196,7 @@ function CopyGenome(genome)
   for g=1,#genome.genes do
     table.insert(genome2.genes, CopyGene(genome.genes[g]))
   end
-  genome2.max_neuron = genome.max_neuron
+  genome2.hidden_neurons = genome.hidden_neurons
   for mutation,rate in pairs(genome.mutation_rates) do
     genome2.mutation_rates[mutation] = rate
   end
@@ -171,7 +207,6 @@ end
 function BasicGenome()
   local genome = NewGenome()
 
-  genome.max_neuron = NUM_INPUT_NODES
   Mutate(genome)
   
   return genome
@@ -179,8 +214,8 @@ end
 
 function NewGene()
   local gene = {}
-  gene.into = 0
-  gene.out = 0
+  gene.src = nil
+  gene.out = nil
   gene.weight = 0.0
   gene.enabled = true
   gene.innovation = 0
@@ -190,7 +225,7 @@ end
 
 function CopyGene(gene)
   local gene2 = NewGene()
-  gene2.into = gene.into
+  gene2.src = gene.src
   gene2.out = gene.out
   gene2.weight = gene.weight
   gene2.enabled = gene.enabled
@@ -211,13 +246,10 @@ function GenerateNetwork(genome)
   local network = {}
   network.neurons = {}
   
-  for i=1,NUM_INPUT_NODES do
-    network.neurons[i] = NewNeuron()
+  for o=1,NUM_OUTPUT_NEURONS do
+    network.neurons["o"..o] = NewNeuron()
   end
-  
-  for o=1,NUM_OUTPUT_NODES do
-    network.neurons[MAX_NODES+o] = NewNeuron()
-  end
+  network.num_neurons = NUM_OUTPUT_NEURONS
   
   table.sort(genome.genes, function (a,b)
     return (a.out < b.out)
@@ -227,57 +259,84 @@ function GenerateNetwork(genome)
     if gene.enabled then
       if network.neurons[gene.out] == nil then
         network.neurons[gene.out] = NewNeuron()
+        network.num_neurons = network.num_neurons + 1
       end
-      local neuron = network.neurons[gene.out]
-      table.insert(neuron.incoming, gene)
-      if network.neurons[gene.into] == nil then
-        network.neurons[gene.into] = NewNeuron()
+      local out = network.neurons[gene.out]
+      table.insert(out.incoming, gene)
+      if network.neurons[gene.src] == nil then
+        network.neurons[gene.src] = NewNeuron()
+        network.num_neurons = network.num_neurons + 1
       end
     end
   end
+  
+  -- Topological sort.
+  local deg = {}
+  local queue = {}
+  local head = 1
+  for id, neuron in pairs(network.neurons) do
+    deg[id] = #neuron.incoming
+    if deg[id] == 0 then
+      queue[#queue+1] = id
+    end
+  end
+  while head < #queue do
+    local neuron = network.neurons[queue[head]]
+    head = head + 1
+    for _, gene in pairs(neuron.incoming) do
+      local src = gene.src
+      deg[src] = deg[src] - 1
+      if deg[src] == 0 then
+        queue[#queue+1] = src
+      end
+    end
+  end
+
+  network.reversed_topological_ids = queue
   
   genome.network = network
 end
 
 function EvaluateNetwork(network, inputs)
-  if #inputs ~= NUM_INPUT_NODES then
-    emu.print("Incorrect number of neural network inputs.", #inputs, NUM_INPUT_NODES)
-    return {}
-  end
-  
-  for i=1,NUM_INPUT_NODES do
-    network.neurons[i].value = inputs[i]
-  end
-  
-  for _,neuron in pairs(network.neurons) do
-    local sum = 0
-    for j = 1,#neuron.incoming do
-      local incoming = neuron.incoming[j]
-      local other = network.neurons[incoming.into]
-      sum = sum + incoming.weight * other.value
+  for id, val in pairs(inputs) do
+    if network.neurons[id] ~= nil then
+      network.neurons[id].value = val
     end
-    
+  end
+
+  -- Feed forward.
+  -- TODO: Skip input neurons.
+  for i = #network.reversed_topological_ids, 1, -1 do
+    local neuron = network.neurons[network.reversed_topological_ids[i]]
     if #neuron.incoming > 0 then
-      neuron.value = Sigmoid(sum)
+      local sum = 0
+      for j = 1,#neuron.incoming do
+        local gene = neuron.incoming[j]
+        local src = network.neurons[gene.src]
+        sum = sum + gene.weight * src.value
+      end
+      neuron.value = ReLu(sum)
     end
   end
   
   local outputs = {}
-  for o=1,NUM_OUTPUT_NODES do
-    local button = BUTTONS[o]
-    if network.neurons[MAX_NODES+o].value > 0 then
-      outputs[button] = true
-    else
-      outputs[button] = false
-    end
-  end
-  
-  -- TODO: Try only 2 outputs: {"direction", "fire"}
-  if outputs["left"] and outputs["right"] then
+  local dir = network.neurons["o1"].value
+  if dir <= -0.5 then
+    outputs["left"] = true
+    outputs["right"] = false
+  else if dir >= 0.5 then
+    outputs["left"] = false
+    outputs["right"] = true
+  else
     outputs["left"] = false
     outputs["right"] = false
+  end end
+  local fire = network.neurons["o2"].value
+  if fire > 0 then
+    outputs["A"] = true
+  else
+    outputs["A"] = false
   end
-  
   return outputs
 end
 
@@ -307,7 +366,7 @@ function Crossover(g1, g2)
     end
   end
   
-  child.max_neuron = math.max(g1.max_neuron, g2.max_neuron)
+  child.hidden_neurons = math.max(g1.hidden_neurons, g2.hidden_neurons)
   
   for mutation,rate in pairs(g1.mutation_rates) do
     child.mutation_rates[mutation] = rate
@@ -316,21 +375,35 @@ function Crossover(g1, g2)
   return child
 end
 
-function RandomNeuron(genes, include_input)
+function IsInputNeuron(id)
+  return id[0] ~= "h" and id[0] ~= "o"
+end
+
+function IsHiddenNeuron(id)
+  return id[0] == "h"
+end
+
+function IsOutputNeuron(id)
+  return id[0] == "o"
+end
+
+function RandomNeuron(genes, include_input, include_output)
   local neurons = {}
   if include_input then
-    for i=1,NUM_INPUT_NODES do
-      neurons[i] = true
+    for _, id in pairs(GetAllInputs()) do
+      neurons[id] = true
     end
   end
-  for o=1,NUM_OUTPUT_NODES do
-    neurons[MAX_NODES+o] = true
-  end
-  for i=1,#genes do
-    if include_input or genes[i].into > NUM_INPUT_NODES then
-      neurons[genes[i].into] = true
+  if include_output then
+    for o = 1, NUM_OUTPUT_NEURONS do
+      neurons["o"..o] = true
     end
-    if include_input or genes[i].out > NUM_INPUT_NODES then
+  end
+  for i = 1, #genes do
+    if IsHiddenNeuron(genes[i].src) then
+      neurons[genes[i].src] = true
+    end
+    if IsHiddenNeuron(genes[i].out) then
       neurons[genes[i].out] = true
     end
   end
@@ -348,16 +421,17 @@ function RandomNeuron(genes, include_input)
     end
   end
   
-  return 0
+  return nil
 end
 
-function ContainsLink(genes, link)
+function ContainsGene(genes, g)
   for i=1,#genes do
     local gene = genes[i]
-    if gene.into == link.into and gene.out == link.out then
+    if gene.src == g.src and gene.out == g.out then
       return true
     end
   end
+  return false
 end
 
 function PointMutate(genome)
@@ -373,43 +447,31 @@ function PointMutate(genome)
   end
 end
 
-function LinkMutate(genome, force_special_input_nodes)
-  local neuron1 = RandomNeuron(genome.genes, true)
-  local neuron2 = RandomNeuron(genome.genes, false)
-   
-  local new_link = NewGene()
-  if neuron1 <= NUM_INPUT_NODES and neuron2 <= NUM_INPUT_NODES then
-    -- Both input nodes, it's impossible
-    return
+function GeneMutate(genome, force_bias)
+  local new_gene = NewGene()
+  if force_bias then
+    new_gene.src = "bias"
+  else
+    new_gene.src = RandomNeuron(genome.genes, true, false)
   end
-  if neuron2 <= NUM_INPUT_NODES then
-    -- Swap output and input
-    local temp = neuron1
-    neuron1 = neuron2
-    neuron2 = temp
-  end
+  new_gene.out = RandomNeuron(genome.genes, false, true)
 
-  new_link.into = neuron1
-  new_link.out = neuron2
-  if force_special_input_nodes then
-    new_link.into = NUM_INPUT_NODES - math.random(0, NUM_SPECIAL_INPUT_NODES)
-  end
   
-  if ContainsLink(genome.genes, new_link) then
+  if ContainsGene(genome.genes, new_gene) then
     return
   end
-  new_link.innovation = NewInnovation()
-  new_link.weight = math.random()*4-2
+  new_gene.innovation = NewInnovation()
+  new_gene.weight = math.random()*4-2
   
-  table.insert(genome.genes, new_link)
+  table.insert(genome.genes, new_gene)
 end
 
-function NodeMutate(genome)
+function NeuronMutate(genome)
   if #genome.genes == 0 then
     return
   end
 
-  genome.max_neuron = genome.max_neuron + 1
+  genome.hidden_neurons = genome.hidden_neurons + 1
 
   local gene = genome.genes[math.random(1,#genome.genes)]
   if not gene.enabled then
@@ -418,14 +480,14 @@ function NodeMutate(genome)
   gene.enabled = false
   
   local gene1 = CopyGene(gene)
-  gene1.out = genome.max_neuron
+  gene1.out = string.format("h%03d", genome.hidden_neurons)
   gene1.weight = 1.0
   gene1.innovation = NewInnovation()
   gene1.enabled = true
   table.insert(genome.genes, gene1)
   
   local gene2 = CopyGene(gene)
-  gene2.into = genome.max_neuron
+  gene2.src = string.format("h%03d", genome.hidden_neurons)
   gene2.innovation = NewInnovation()
   gene2.enabled = true
   table.insert(genome.genes, gene2)
@@ -460,26 +522,26 @@ function Mutate(genome)
     PointMutate(genome)
   end
   
-  local p = genome.mutation_rates["link"]
+  local p = genome.mutation_rates["gene"]
   while p > 0 do
     if math.random() < p then
-      LinkMutate(genome, false)
+      GeneMutate(genome, false)
     end
     p = p - 1
   end
 
-  p = genome.mutation_rates["special"]
+  p = genome.mutation_rates["bias"]
   while p > 0 do
     if math.random() < p then
-      LinkMutate(genome, true)
+      GeneMutate(genome, true)
     end
     p = p - 1
   end
   
-  p = genome.mutation_rates["node"]
+  p = genome.mutation_rates["neuron"]
   while p > 0 do
     if math.random() < p then
-      NodeMutate(genome)
+      NeuronMutate(genome)
     end
     p = p - 1
   end
@@ -735,14 +797,6 @@ function InitializePool()
   end
 end
 
-function ClearJoypad()
-  local controller = {}
-  for b = 1,#BUTTONS do
-    controller[BUTTONS[b]] = false
-  end
-  joypad.set(1, controller)
-end
-
 function NextGenome()
   pool.cur_genome = pool.cur_genome + 1
   if pool.cur_genome > #pool.species[pool.cur_species].genomes then
@@ -774,7 +828,7 @@ function WriteFile(filename)
     file:write(#species.genomes .. "\n")
     for m,genome in pairs(species.genomes) do
       file:write(genome.fitness .. "\n")
-      file:write(genome.max_neuron .. "\n")
+      file:write(genome.hidden_neurons .. "\n")
       for mutation,rate in pairs(genome.mutation_rates) do
         file:write(mutation .. "\n")
         file:write(rate .. "\n")
@@ -783,8 +837,8 @@ function WriteFile(filename)
 
       file:write(#genome.genes .. "\n")
       for l,gene in pairs(genome.genes) do
-        file:write(gene.into .. " ")
-        file:write(gene.out .. " ")
+        file:write(gene.src .. "\n")
+        file:write(gene.out .. "\n")
         file:write(gene.weight .. " ")
         file:write(gene.innovation .. " ")
         if(gene.enabled) then
@@ -828,7 +882,7 @@ function LoadFile(filename)
       local genome = NewGenome()
       table.insert(species.genomes, genome)
       genome.fitness = file:read("*number")
-      genome.max_neuron = file:read("*number")
+      genome.hidden_neurons = file:read("*number")
       local line = file:read("*line")
       while line ~= "done" do
         genome.mutation_rates[line] = file:read("*number")
@@ -839,7 +893,10 @@ function LoadFile(filename)
         local gene = NewGene()
         table.insert(genome.genes, gene)
         local enabled
-        gene.into, gene.out, gene.weight, gene.innovation, enabled = file:read("*number", "*number", "*number", "*number", "*number")
+        file:read("*line")
+        gene.src = file:read("*line")
+        gene.out = file:read("*line")
+        gene.weight, gene.innovation, enabled = file:read("*number", "*number", "*number")
         if enabled == 0 then
           gene.enabled = false
         else
@@ -882,32 +939,34 @@ end
 
 ---- Game ----
 
--- Enemies.
-function GetEnemies()
+-- Incoming enemies.
+function GetIncomingEnemies()
   local ret = {}
-  -- Incoming enemies.
   for addr=0x203,0x253,0x10 do
     local x = memory.readbyte(addr)
     local y = memory.readbyte(addr + 1)
     if x > 0 and y > 0 then
-      x = x + DX
-      y = y + DY / 2
-      ret[#ret+1] = {x=x, y=y, w=1}
+      ret[#ret+1] = {x=(x+8)%0xFF, y=y+6}
     end
   end
-  -- Enemies standing still.
+  return ret
+end
+
+-- Enemies standing still.
+function GetStillEnemies()
+  local ret = {}
   local dx = memory.readbyte(0xE5)
   for i=0,9 do
-    local x = (dx + 48) % 256 + 16 * i + DX
-    local y = 102 + DY / 2
+    local x = (dx + 48 + 16 * i + 8) % 0xFF
+    local y = 108
     local mask = memory.readbyte(0xC3 + i)
     while mask > 0 do
       if mask % 2 ~= 0 then
-        ret[#ret+1] = {x=x, y=y, w=0.2}
+        ret[#ret+1] = {x=x, y=y}
         mask = mask - 1
       end
       mask = mask / 2
-      y = y - DY
+      y = y - 12
     end
   end
   return ret
@@ -943,43 +1002,6 @@ function Round(x, x1, dx)
   return (x-x1) - (x-x1)%dx + x1
 end
 
--- Tile map.
-function GetTileMap(enemies, bullets, sight)
-  map = {}
-
-  function Add(gx, gy, val)
-    if val ~= 0 and gy < sight.y2 then
-      gx = math.max(sight.x1, math.min(sight.x2 - DX, gx))
-      gy = math.max(sight.y1, gy)
-      if map[gx] == nil then
-        map[gx] = {}
-      end
-      if map[gx][gy] == nil then
-        map[gx][gy] = 0
-      end
-      map[gx][gy] = map[gx][gy] + val
-    end
-  end
-
-  for _, e in pairs(enemies) do
-    local gx = Round(e.x, sight.x1, DX)
-    local gy = Round(e.y, sight.y1, DY) -- TODO: RoundUp.
-    local cx = gx + DX / 2
-    local pxl = math.max(cx - e.x, 0) / DX
-    local pxr = math.max(e.x - cx, 0) / DX
-    local pxc = 1 - pxl - pxr
-    Add(gx,      gy, e.w * pxc)
-    Add(gx - DX, gy, e.w * pxl)
-    Add(gx + DX, gy, e.w * pxr)
-  end
-  for _, b in pairs(bullets) do
-    local gx = Round(b.x, sight.x1, DX)
-    local gy = Round(b.y, sight.y1, DY)
-    Add(gx, gy, -1)  -- TODO: better add a layer for bullets than using -1 here.
-  end
-  return map
-end
-
 -- Our missile. nil if not fired.
 function GetMissile()
   local x = memory.readbyte(0x283)
@@ -999,19 +1021,26 @@ function GetScore()
   return score
 end
 
+function GetSurvivedIncomings(recent_games)
+  local ret = 0
+  local g = recent_games[0]
+  local p = recent_games[1]
+  if p ~= nil then
+    -- This is not accurate, but good enough.
+    ret = math.max(0, #p.bullets - #g.bullets) + math.max(0, #p.incoming_enemies - #g.incoming_enemies)
+  end
+  return ret
+end
+
 ---- UI ----
 
-SHOW_GRID = true
-SHOW_COOR = false
-SHOW_TILE_MAP = true
-SHOW_OBJECTS = false
-SHOW_BANNER = true
-SHOW_AI_VISION = false
+function Show(recent_games, genome)
+  local g = recent_games[0]
 
-function Show(g, genome)
   if SHOW_AI_VISION then
     gui.drawbox(0, 0, 256, 256, 'black', 'clear')
   end
+
   if SHOW_GRID then
     local color = {0xFF, 0xFF, 0xFF, 0x80}
     for x = g.sight.x1, g.sight.x2, DX do
@@ -1027,34 +1056,52 @@ function Show(g, genome)
         gui.drawtext(5, y, y)
       end
     end
+  end
+
+  local galaxian_y = Y2
+  if SHOW_AI_VISION then
     -- missile aimming ray
     if g.missile == nil then
       gui.drawline(g.galaxian_x, g.sight.y1, g.galaxian_x, g.sight.y2, 'red')
     end
+    gui.drawbox(g.galaxian_x-2, galaxian_y-2, g.galaxian_x+2, galaxian_y+2, 'green', 'clear')
   end
 
   if SHOW_TILE_MAP then
-    for x, row in pairs(g.tile_map) do
-      for y, val in pairs(row) do
-        local color = nil
-        if val >= 0 then
-          color = {0, 0, 0xFF, 0x80 * val} -- enemies are blue
-        else
-          color = {0xFF, 0, 0, 0x80 * -val} -- bullets are red
+    function DrawTile(t, color, gid)
+      if InSight(g.sight, t) then
+        local x = math.floor((t.x - g.sight.x0) / DX) * DX + g.sight.x0
+        local y = math.floor((t.y - g.sight.y0) / DY) * DY + g.sight.y0
+        local d = gid
+        gui.drawbox(x+d, y+d, x+DX-d, y+DY-d, color, 'clear')
+      end
+    end
+    for gid = NUM_SNAPSHOTS-1, 0, -1 do
+      local game = recent_games[gid]
+      if game ~= nil then
+        for _, e in pairs(game.still_enemies) do
+          DrawTile(e, 'blue', gid)
         end
-        gui.drawbox(x, y, x + DX, y + DY, color, 'clear')
+        for _, e in pairs(game.incoming_enemies) do
+          DrawTile(e, 'blue', gid)
+        end
+        for _, b in pairs(game.bullets) do
+          DrawTile(b, 'red', gid)
+        end
       end
     end
   end
 
   if SHOW_OBJECTS then
-    for _, e in pairs(g.enemies) do
+    for _, e in pairs(g.still_enemies) do
+      gui.drawbox(e.x - DX, e.y - DY / 2, e.x + DX, e.y + DY / 2, {0xFF, 0, 0, 0x80}, 'clear')
+    end
+    for _, e in pairs(g.incoming_enemies) do
       gui.drawbox(e.x - DX, e.y - DY / 2, e.x + DX, e.y + DY / 2, {0xFF, 0, 0, 0x80}, 'clear')
     end
     for _, b in pairs(g.bullets) do
       gui.drawbox(b.x - 4, b.y - 4, b.x + 4, b.y + 4, {0xFF, 0xFF, 0, 0x80}, 'clear')
     end
-    galaxian_y = 200
     gui.drawbox(g.galaxian_x - 4, galaxian_y, g.galaxian_x + 4, galaxian_y + 8, 'green')
   end
 
@@ -1086,6 +1133,14 @@ function SkipFrames(frames)
   end
 end
 
+function ClearJoypad()
+  local controller = {}
+  controller["left"] = false
+  controller["right"] = false
+  controller["A"] = false
+  joypad.set(1, controller)
+end
+
 ---- Script starts here ----
 
 emu.print("Running NEAT Galaxian")
@@ -1113,9 +1168,7 @@ if not LoadPool() then
 end
 
 if PLAY_TOP then
-  -- PlayTop()
-  pool.cur_species = 11
-  pool.cur_genome = 1
+  PlayTop()
   emu.speedmode("normal")
 end
 
@@ -1124,32 +1177,32 @@ if HUMAN_PLAY then
 end
 
 local controller = nil
-local prev_tile_maps = {}
+local recent_games = {}
 
 while true do
   local g = {}
-  g.galaxian_x = (memory.readbyte(0xE4) + 124) % 256 + 4
-  g.enemies = GetEnemies()
+  g.galaxian_x = (memory.readbyte(0xE4) + 128) % 256
+  g.still_enemies = GetStillEnemies()
+  g.incoming_enemies = GetIncomingEnemies()
   g.bullets = GetBullets()
   g.missile = GetMissile()
   g.score = GetScore()
   g.lifes = memory.readbyte(0x42)
   g.sight = GetSight(g.galaxian_x)
-  g.tile_map = GetTileMap(g.enemies, g.bullets, g.sight)
-  g.prev_tile_maps = prev_tile_maps
-  g.prev_tile_maps[0] = tile_map
+
+  recent_games[0] = g
 
   local species = pool.species[pool.cur_species]
   local genome = species.genomes[pool.cur_genome]
 
-  genome.fitness = g.score + math.floor(pool.cur_frame / 20) + 1
+  genome.fitness = g.score + GetSurvivedIncomings(recent_games) * 100 + 1
   if genome.network == nil then
     GenerateNetwork(genome)
   end
 
   -- React every 10 frames.
   if controller == nil or pool.cur_frame % 10 == 0 then
-    controller = EvaluateNetwork(genome.network, GetInputs(g))
+    controller = EvaluateNetwork(genome.network, GetInputs(recent_games))
   end
   if not HUMAN_PLAY then
     joypad.set(1, controller)
@@ -1157,11 +1210,16 @@ while true do
 
   -- Add a snapshot for every 30 frames.
   if pool.cur_frame % 30 == 0 then
-    for i = NUM_SNAPSHOTS-1,2 do
-      prev_tile_maps[i] = prev_tile_maps[i-1]
+    for i = NUM_SNAPSHOTS-1,2,-1 do
+      if recent_games[i-1] ~= nil then
+        recent_games[i] = recent_games[i-1]
+      end
     end
-    prev_tile_maps[1] = g.tile_map
+    recent_games[1] = g
   end
+  pool.cur_frame = pool.cur_frame + 1
+
+  Show(recent_games, genome)
 
   -- Reset if dead.
   if g.lifes < 2 then
@@ -1171,11 +1229,12 @@ while true do
     end
     
     emu.print("Gen " .. pool.generation .. " species " .. pool.cur_species ..
-        " genome " .. pool.cur_genome .. " neurons: " .. genome.max_neuron ..
+        " genome " .. pool.cur_genome .. " neurons: " .. genome.network.num_neurons ..
         " genes: " .. #genome.genes ..  " fitness: " .. genome.fitness ..
         " score: " .. g.score)
 
     savestate.load(INIT_STATE);
+    recent_games = {}
     pool.cur_frame = 0
     ClearJoypad()
 
@@ -1190,8 +1249,5 @@ while true do
     GenerateNetwork(genome)
   end
 
-  Show(g, genome)
-
-  pool.cur_frame = pool.cur_frame + 1
   emu.frameadvance();
 end
