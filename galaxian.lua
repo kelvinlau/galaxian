@@ -12,6 +12,7 @@
 -- * Hidden layers in BasicGenome?
 -- * Incoming enemies and bullets' coordinates as inputs (v7).
 -- * Recurrent Neural Network.
+-- * Use IUP to build forms.
 
 ---- Configs ----
 

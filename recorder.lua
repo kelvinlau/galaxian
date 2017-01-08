@@ -8,16 +8,21 @@
 FILENAME = "Z:/Users/kelvinlau/neat/galaxian.in"
 RESET = true
 
+SHOW_GRID = false
+SHOW_COOR = false
+SHOW_TILE_MAP = true
+SHOW_AI_VISION = true
+
 ---- NN input ----
 
 X1 = 0
 X2 = 256
-DX = 8
+DX = 4
 Y1 = 42
 Y2 = 222
-DY = 12
-SIGHT_X = 16
-SIGHT_Y = 15
+DY = 6
+SIGHT_X = 48
+SIGHT_Y = 32
 NUM_SNAPSHOTS = 3
 
 ----
@@ -73,22 +78,11 @@ function GetInputs(recent_games)
     end
   end
 
-  -- has misile or not
-  -- TODO: maybe misile_y?
-  if g.missile == nil then
-    inputs["m"] = 1
-  else
-    inputs["m"] = 0
-  end
+  -- misile_y scaled in [0, 1]
+  inputs["m"] = g.missile.y / 200
 
   -- galaxian_x scaled in [0, 1]
   inputs["gx"] = (g.galaxian_x - X1) / (X2 - X1)
-
-  -- bias input neuron
-  inputs["bias"] = 1
-
-  -- random input neuron
-  inputs["rnd"] = math.random(-1, 1)
 
   if DEBUG then
     for id, _ in pairs(inputs) do
@@ -179,11 +173,7 @@ end
 function GetMissile()
   local x = memory.readbyte(0x283)
   local y = memory.readbyte(0x280)
-  if y ~= 200 then
-    return {x=x, y=y}
-  else
-    return nil
-  end
+  return {x=x, y=y}
 end
 
 ---- File ----
@@ -207,6 +197,78 @@ function Save(frame_data, end_frame)
     end
   end
   file:close()
+end
+
+---- UI ----
+
+function IsTileNeuron(id)
+  return IsInputNeuron(id) and id:find("%.") ~= nil
+end
+
+function Show(recent_games)
+  local g = recent_games[0]
+
+  if SHOW_AI_VISION then
+    gui.drawbox(0, 0, 256, 256, 'black', 'clear')
+  end
+
+  if SHOW_GRID then
+    local color = {0xFF, 0xFF, 0xFF, 0x80}
+    for x = g.sight.x1, g.sight.x2, DX do
+      gui.drawline(x, g.sight.y1, x, g.sight.y2, color)
+      if SHOW_COOR then
+        local y = 165 + (x % (3 * DX) / DX) * DY
+        gui.drawtext(x, y, x)
+      end
+    end
+    for y = g.sight.y1, g.sight.y2, DY do
+      gui.drawline(g.sight.x1, y, g.sight.x2, y, color)
+      if SHOW_COOR then
+        gui.drawtext(5, y, y)
+      end
+    end
+  end
+
+  if SHOW_AI_VISION then
+    -- missile aimming ray
+    if g.missile.y == 200 then
+      gui.drawline(g.galaxian_x, g.sight.y1, g.galaxian_x, g.sight.y2, 'red')
+    end
+    gui.drawbox(g.galaxian_x-2, g.galaxian_y-2, g.galaxian_x+2, g.galaxian_y+2, 'green', 'clear')
+  end
+
+  if SHOW_TILE_MAP then
+    function DrawStillEnemy(e, gid)
+      if InSightX(g.sight, e) then
+        local x = math.floor((e.x - g.sight.x0) / DX) * DX + g.sight.x0
+        local y = Y1+5*DY
+        local d = math.min(gid, DX/2-1)
+        gui.drawbox(x+d, y+d, x+DX-d, y+DY-d, 'blue', 'clear')
+      end
+    end
+    function DrawTile(t, color, gid)
+      if InSight(g.sight, t) then
+        local x = math.floor((t.x - g.sight.x0) / DX) * DX + g.sight.x0
+        local y = math.floor((t.y - g.sight.y0) / DY) * DY + g.sight.y0
+        local d = math.min(gid, DX/2-1)
+        gui.drawbox(x+d, y+d, x+DX-d, y+DY-d, color, 'clear')
+      end
+    end
+    for gid = NUM_SNAPSHOTS-1, 0, -1 do
+      local game = recent_games[gid]
+      if game ~= nil then
+        for _, e in pairs(game.still_enemies) do
+          DrawStillEnemy(e, gid)
+        end
+        for _, e in pairs(game.incoming_enemies) do
+          DrawTile(e, 'blue', gid)
+        end
+        for _, b in pairs(game.bullets) do
+          DrawTile(b, 'red', gid)
+        end
+      end
+    end
+  end
 end
 
 ---- Misc ----
@@ -260,17 +322,17 @@ while true do
 
   recent_games[0] = g
 
-  -- Record input and output for every 10 frames.
-  if cur_frame % 10 == 0 then
+  -- Record input and output for every 5 frames.
+  if cur_frame % 5 == 0 then
     local data = {}
     data.inputs = GetInputs(recent_games)
     data.outputs = GetOutputs()
     frame_data[cur_frame] = data
   end
 
-  -- Save to file for every 600 frames.
-  if cur_frame % 600 == 30 then
-    Save(frame_data, cur_frame-30)
+  -- Save to file for every 600 frames, save up to 300 frames ago.
+  if cur_frame % 600 == 300 then
+    Save(frame_data, cur_frame-300)
   end
 
   -- Add a snapshot for every 30 frames.
@@ -284,6 +346,8 @@ while true do
   end
 
   cur_frame = cur_frame + 1
+
+  Show(recent_games)
 
   -- Reset if dead.
   if g.lifes < 2 then
