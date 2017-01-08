@@ -1,2 +1,4 @@
 *.pool
 *.in
+*.ctrl
+*.frames
