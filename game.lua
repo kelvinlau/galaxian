@@ -89,11 +89,7 @@ end
 function GetMissile()
   local x = memory.readbyte(0x283)
   local y = memory.readbyte(0x280)
-  if y ~= 200 then
-    return {x=x, y=y}
-  else
-    return nil
-  end
+  return {x=x, y=y}
 end
 
 function GetScore()
@@ -149,8 +145,8 @@ function GetAllInputs()
   end
   ids[#ids+1] = "m"
   ids[#ids+1] = "gx"
-  ids[#ids+1] = "bias"
   ids[#ids+1] = "rnd"
+  ids[#ids+1] = "bias"
   return ids
 end
 
@@ -164,7 +160,7 @@ function InSightX(sight, t)
   return sight.x1 <= t.x and t.x < sight.x2
 end
 
-function GetInputs(recent_games)
+function GetInputs(recent_games, exclude_bias)
   local inputs = {}
   local g = recent_games[0]
 
@@ -207,22 +203,17 @@ function GetInputs(recent_games)
     end
   end
 
-  -- has misile or not
-  -- TODO: maybe misile_y?
-  if g.missile == nil then
-    inputs["m"] = 1
-  else
-    inputs["m"] = 0
-  end
+  -- misile_y scaled in [0, 1]
+  inputs["m"] = g.missile.y / 200
 
   -- galaxian_x scaled in [0, 1]
   inputs["gx"] = (g.galaxian_x - X1) / (X2 - X1)
 
   -- bias input neuron
-  inputs["bias"] = 1
-
-  -- random input neuron
-  inputs["rnd"] = math.random(-1, 1)
+  if not exclude_bias then
+    inputs["bias"] = 1
+    inputs["rnd"] = 1
+  end
 
   return inputs
 end
@@ -271,7 +262,7 @@ function Show(recent_games, genome)
 
   if SHOW_AI_VISION then
     -- missile aimming ray
-    if g.missile == nil then
+    if g.missile.y == 200 then
       gui.drawline(g.galaxian_x, g.sight.y1, g.galaxian_x, g.sight.y2, 'red')
     end
     gui.drawbox(g.galaxian_x-2, g.galaxian_y-2, g.galaxian_x+2, g.galaxian_y+2, 'green', 'clear')

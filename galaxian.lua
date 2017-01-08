@@ -18,6 +18,14 @@ require("game")
 
 ---- Configs ----
 
+SHOW_GRID = false
+SHOW_COOR = false
+SHOW_OBJECTS = false
+SHOW_TILE_MAP = true
+SHOW_BANNER = true
+SHOW_AI_VISION = true
+SHOW_NETWORK = true
+
 WORK_DIR = "Z:/Users/kelvinlau/neat"
 FILENAME = "galaxian.v8.pool"
 

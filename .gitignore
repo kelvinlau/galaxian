@@ -2,3 +2,5 @@
 *.in
 *.ctrl
 *.frames
+*.cpk*
+checkpoint

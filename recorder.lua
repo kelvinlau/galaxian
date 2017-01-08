@@ -3,15 +3,31 @@
 --
 -- Records human playing and save neural network inputs as training data.
 
-require("game")
-
 ---- Configs ----
 
-FILENAME = "Z:/Users/kelvinlau/neat/galaxian.in"
+FILENAME = "Z:/Users/kelvinlau/neat/galaxian.frames"
 RESET = true
 
 SHOW_TILE_MAP = true
 SHOW_AI_VISION = true
+
+---- Saving ----
+
+function Save(frame_data, end_frame)
+  emu.print("Saving frames up to " .. end_frame)
+  local file = io.open(FILENAME, "a")
+  for frame, data in pairs(frame_data) do
+    if frame < end_frame then
+      file:write(data.control .. "\n")
+      for id, val in pairs(data.inputs) do
+        file:write(id .. "\n" .. val .. "\n")
+      end
+      file:write("done\n")
+      frame_data[frame] = nil
+    end
+  end
+  file:close()
+end
 
 ---- Script starts here ----
 
@@ -24,7 +40,7 @@ end
 emu.speedmode("normal")
 
 INIT_STATE = savestate.create(9)
-savestate.save(INIT_STATE)
+savestate.save(INIT_STATE);
 
 local recent_games = {}
 local cur_frame = 0
