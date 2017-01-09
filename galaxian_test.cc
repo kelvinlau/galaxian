@@ -22,7 +22,7 @@ int main(int argc, char *argv[]) {
   Emulator::Save(&beginning);
 
   int prev_score = -1;
-  string prev_action;
+  char prev_action = '_';
   fprintf(stderr, "Running %zd steps...\n", inputs.size());
   for (int i = 0; i < inputs.size(); i++) {
     vector<uint8> v;
@@ -32,9 +32,9 @@ int main(int argc, char *argv[]) {
     Emulator::Step(inputs[i]);
 
     const int score = GetScore();
-    const string action = GetAction(inputs[i]);
+    const char action = ToAction(inputs[i]);
     if (score != prev_score || action != prev_action) {
-      fprintf(stderr, "%d %s %d %d\n", i + 510-409, action.c_str(), score, GetX());
+      fprintf(stderr, "%d %c %d %d\n", i, action, score, GetX());
       prev_action = action;
       prev_score = score;
     }

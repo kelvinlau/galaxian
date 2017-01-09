@@ -15,7 +15,7 @@
 #include "fceu/state.h"
 #include "fceu/sound.h"
 
-#include "tasbot.h"
+#include "cc-lib/base/logging.h"
 #include "cc-lib/city/city.h"
 
 // Joystick data. I think used for both controller 0 and 1. Part of
@@ -204,7 +204,7 @@ static int DriverInitialize(FCEUGI *gi) {
 
   // PERF: Consider the implications of using a high/low sample rate.
   // This must be set for StepFull and GetSound to function.
-  FCEUI_Sound(TASBOT_SAMPLE_RATE);
+  FCEUI_Sound(44100);
 
   // Why do both point to the same joydata? -tom
   FCEUI_SetInput (0, SI_GAMEPAD, &joydata, 0);
@@ -431,7 +431,7 @@ void Emulator::Load(vector<uint8> *state) {
 // Without screenshot, ~1.3kb and only 40% slowdown
 // XXX External interface now allows client to specify, so maybe just
 // make this a guarantee.
-#define USE_COMPRESSION 1
+#define USE_COMPRESSION 0
 
 #if USE_COMPRESSION
 
@@ -477,16 +477,15 @@ void Emulator::SaveEx(vector<uint8> *state, const vector<uint8> *basis) {
 void Emulator::LoadEx(vector<uint8> *state, const vector<uint8> *basis) {
   // Decompress. First word tells us the decompressed size.
   int uncomprlen = *(uint32*)&(*state)[0];
+  int len = uncomprlen;
   vector<uint8> uncompressed;
   uncompressed.resize(uncomprlen);
 
-  fprintf(stderr, "state_size: %zd, uncomprlen: %d\n", state->size(), uncomprlen);
- 
   switch (uncompress(&uncompressed[0], (uLongf*)&uncomprlen,
 		     &(*state)[4], state->size() - 4)) {
   case Z_OK: break;
   case Z_BUF_ERROR:
-    fprintf(stderr, "Not enough room in output\n");
+    fprintf(stderr, "Not enough room in output: %zd, %d\n", state->size(), len);
     abort();
     break;
   case Z_MEM_ERROR:
@@ -520,7 +519,7 @@ void Emulator::LoadEx(vector<uint8> *state, const vector<uint8> *basis) {
 // When compression is disabled, we ignore the basis (no point) and
 // don't store any size header. These functions become very simple.
 void Emulator::SaveEx(vector<uint8> *state, const vector<uint8> *basis) {
-  FCEUSS_SaveRAW(out);
+  FCEUSS_SaveRAW(state);
 }
 
 void Emulator::LoadEx(vector<uint8> *state, const vector<uint8> *basis) {
