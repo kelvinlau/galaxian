@@ -4,3 +4,8 @@
 *.frames
 *.cpk*
 checkpoint
+galaxian
+*.nes
+*.basis
+*.fm2
+*.o
