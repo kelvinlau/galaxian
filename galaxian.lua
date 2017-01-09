@@ -950,7 +950,7 @@ while true do
 
   -- Add a snapshot for every 30 frames.
   if pool.cur_frame % 30 == 0 then
-    survived_incomings = survived_incomings + GetSurvivedIncomings(recent_games)
+    survived_incomings = survived_incomings + GetSurvivedIncomings(g, recent_games[1])
     for i = NUM_SNAPSHOTS-1,2,-1 do
       if recent_games[i-1] ~= nil then
         recent_games[i] = recent_games[i-1]

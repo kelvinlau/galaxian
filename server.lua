@@ -88,6 +88,7 @@ INIT_STATE = savestate.create(9)
 savestate.save(INIT_STATE)
 
 local recent_games = {}
+local prev_g = nil
 local prev_score = 0
 local max_score = 0
 local cur_step = 0
@@ -108,7 +109,7 @@ while true do
   control, seq = ReadControl(client)
 
   cur_step = cur_step + 1
-  for i = 1, 5 do
+  for i = 1, 20 do
     ShowScore(max_score)
     joypad.set(1, control)
     emu.frameadvance();
@@ -121,9 +122,10 @@ while true do
   data.seq = seq
   data.inputs = GetInputs(recent_games, true)  -- exclude_bias=true
   data.control = GetControl()
-  data.reward = g.score - prev_score
+  data.reward = g.score - prev_score + GetSurvivedIncomings(g, prev_g) * 100
   Respond(client, data)
 
+  prev_g = g;
   prev_score = g.score
   max_score = math.max(max_score, g.score)
 

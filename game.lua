@@ -100,10 +100,8 @@ function GetScore()
   return score
 end
 
-function GetSurvivedIncomings(recent_games)
+function GetSurvivedIncomings(g, p)
   local ret = 0
-  local g = recent_games[0]
-  local p = recent_games[1]
   if p ~= nil then
     -- This is not accurate, but good enough.
     ret = math.max(0, #p.bullets - #g.bullets) + math.max(0, #p.incoming_enemies - #g.incoming_enemies)
