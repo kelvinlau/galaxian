@@ -136,99 +136,6 @@ function GetGame()
   return g
 end
 
----- NN Input ----
-
-function GetAllInputs()
-  local ids = {}
-  for gid = 0, NUM_SNAPSHOTS-1 do
-    for ix = -SIGHT_X, SIGHT_X-1 do
-      ids[#ids+1] = string.format("%s%d.%03d", "s", gid, ix)
-    end
-  end
-  for _, t in pairs({"i", "b"}) do
-    for gid = 0, NUM_SNAPSHOTS-1 do
-      for ix = -SIGHT_X, SIGHT_X-1 do
-        for iy = 0, SIGHT_Y-1 do
-          ids[#ids+1] = string.format("%s%d.%03d,%03d", t, gid, ix, iy)
-        end
-      end
-    end
-  end
-  ids[#ids+1] = "m"
-  ids[#ids+1] = "gx"
-  ids[#ids+1] = "rnd"
-  ids[#ids+1] = "bias"
-  return ids
-end
-
-ALL_INPUTS = GetAllInputs()
-
-function InSight(sight, t)
-  return sight.x1 <= t.x and t.x < sight.x2 and sight.y1 <= t.y and t.y < sight.y2
-end
-
-function InSightX(sight, t)
-  return sight.x1 <= t.x and t.x < sight.x2
-end
-
-function GetInputs(recent_games, exclude_bias)
-  local inputs = {}
-  local g = recent_games[0]
-
-  function AddVal(id, val)
-    if inputs[id] == nil then
-      inputs[id] = val
-    else
-      inputs[id] = inputs[id] + val
-    end
-  end
-
-  function AddStillEnemy(prefix, e, val)
-    if InSightX(g.sight, e) then
-      local ix = math.floor((e.x - g.galaxian.x) / DX)
-      local id = string.format("%s.%03d", prefix, ix)
-      AddVal(id, val)
-    end
-  end
-
-  function AddTile(prefix, t, val)
-    if InSight(g.sight, t) then
-      local ix = math.floor((t.x - g.galaxian.x) / DX)
-      local iy = math.floor((t.y - g.sight.y0) / DY)
-      local id = string.format("%s.%03d,%03d", prefix, ix, iy)
-      AddVal(id, val)
-    end
-  end
-
-  -- Tiles (last several snapshots)
-  -- TODO: enemy type?
-  for gid, game in pairs(recent_games) do
-    for _, e in pairs(game.still_enemies) do
-      AddStillEnemy("s" .. gid, e, 1)
-    end
-    for _, e in pairs(game.incoming_enemies) do
-      AddTile("i" .. gid, e, 1)
-    end
-    for _, b in pairs(game.bullets) do
-      AddTile("b" .. gid, b, 1)
-    end
-  end
-
-  -- misile_y scaled in [0, 1]
-  inputs["m"] = g.missile.y / 200
-
-  -- galaxian.x scaled in [0, 1]
-  inputs["gx"] = (g.galaxian.x - X1) / (X2 - X1)
-
-  -- bias input neuron
-  if not exclude_bias then
-    inputs["bias"] = 1
-    inputs["rnd"] = 1
-  end
-
-  return inputs
-end
-
 function GetAction()
   local controls = joypad.get(1)
   if controls["A"] then
@@ -239,6 +146,14 @@ function GetAction()
     return "R"
   end
   return "_"
+end
+
+function InSight(sight, t)
+  return sight.x1 <= t.x and t.x < sight.x2 and sight.y1 <= t.y and t.y < sight.y2
+end
+
+function InSightX(sight, t)
+  return sight.x1 <= t.x and t.x < sight.x2
 end
 
 ---- UI ----
