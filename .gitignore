@@ -2,8 +2,8 @@
 *.in
 *.ctrl
 *.frames
-*.cpk*
-checkpoint
+*.ckpt*
+**/checkpoint
 galaxian_test
 server
 *.nes
