@@ -3,6 +3,8 @@
 Galaxian deep neural network.
 
 Ref: https://www.nervanasys.com/demystifying-deep-reinforcement-learning/
+
+TODO: Save png to verify input data.
 """
 
 from __future__ import print_function
@@ -149,7 +151,7 @@ class Game:
     frame = Frame(line)
 
     assert frame.seq == self._seq, 'Expecting %d, got %d' % (self._seq, frame.seq)
-    assert frame.action == action or action == 'human'
+    assert frame.action == action or action == 'H'
 
     return frame
 
@@ -245,6 +247,7 @@ class NeuralNetwork:
 
 
 # Deep Learning Params
+# Note only lua server supports human play, cc server doesn't.
 HUMAN_PLAY = 0 # 2160  # 3 minutes
 LEARNING_RATE = 0.99
 INITIAL_EPSILON = 1.0
@@ -282,7 +285,7 @@ def Run():
     epsilon = INITIAL_EPSILON
     while True:
       if steps < HUMAN_PLAY:
-        action = 'human'  # Note only lua server supports human play, not cc server
+        action = 'H'
       elif random.random() <= epsilon:
         action = ACTION_NAMES[random.randrange(OUTPUT_DIM)]
       else:

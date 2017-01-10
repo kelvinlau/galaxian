@@ -35,6 +35,17 @@ function GetIncomingEnemies()
   return ret
 end
 
+-- Enemies standing still (encoded).
+function GetStillEnemiesEncoded()
+  local ret = {}
+  ret[#ret+1] = memory.readbyte(0xE5)
+  for i=0,9 do
+    local mask = memory.readbyte(0xC3 + i)
+    ret[#ret+1] = mask
+  end
+  return ret
+end
+
 -- Enemies standing still.
 function GetStillEnemies()
   local ret = {}
@@ -111,15 +122,17 @@ end
 
 function GetGame()
   local g = {}
-  g.galaxian_x = (memory.readbyte(0xE4) + 128) % 256
-  g.galaxian_y = Y2
+  g.galaxian = {}
+  g.galaxian.x = (memory.readbyte(0xE4) + 128) % 256
+  g.galaxian.y = Y2
+  g.still_enemies_encoded = GetStillEnemiesEncoded()
   g.still_enemies = GetStillEnemies()
   g.incoming_enemies = GetIncomingEnemies()
   g.bullets = GetBullets()
   g.missile = GetMissile()
   g.score = GetScore()
   g.lifes = memory.readbyte(0x42)
-  g.sight = GetSight(g.galaxian_x)
+  g.sight = GetSight(g.galaxian.x)
   return g
 end
 
@@ -172,7 +185,7 @@ function GetInputs(recent_games, exclude_bias)
 
   function AddStillEnemy(prefix, e, val)
     if InSightX(g.sight, e) then
-      local ix = math.floor((e.x - g.galaxian_x) / DX)
+      local ix = math.floor((e.x - g.galaxian.x) / DX)
       local id = string.format("%s.%03d", prefix, ix)
       AddVal(id, val)
     end
@@ -180,7 +193,7 @@ function GetInputs(recent_games, exclude_bias)
 
   function AddTile(prefix, t, val)
     if InSight(g.sight, t) then
-      local ix = math.floor((t.x - g.galaxian_x) / DX)
+      local ix = math.floor((t.x - g.galaxian.x) / DX)
       local iy = math.floor((t.y - g.sight.y0) / DY)
       local id = string.format("%s.%03d,%03d", prefix, ix, iy)
       AddVal(id, val)
@@ -204,8 +217,8 @@ function GetInputs(recent_games, exclude_bias)
   -- misile_y scaled in [0, 1]
   inputs["m"] = g.missile.y / 200
 
-  -- galaxian_x scaled in [0, 1]
-  inputs["gx"] = (g.galaxian_x - X1) / (X2 - X1)
+  -- galaxian.x scaled in [0, 1]
+  inputs["gx"] = (g.galaxian.x - X1) / (X2 - X1)
 
   -- bias input neuron
   if not exclude_bias then
@@ -216,16 +229,16 @@ function GetInputs(recent_games, exclude_bias)
   return inputs
 end
 
-function GetControl()
+function GetAction()
   local controls = joypad.get(1)
   if controls["A"] then
-    return "fire"
+    return "A"
   elseif controls["left"] and not controls["right"] then
-    return "left"
+    return "L"
   elseif not controls["left"] and controls["right"] then
-    return "right"
+    return "R"
   end
-  return "stay"
+  return "_"
 end
 
 ---- UI ----
@@ -261,9 +274,9 @@ function Show(recent_games, genome)
   if SHOW_AI_VISION then
     -- missile aimming ray
     if g.missile.y == 200 then
-      gui.drawline(g.galaxian_x, g.sight.y1, g.galaxian_x, g.sight.y2, 'red')
+      gui.drawline(g.galaxian.x, g.sight.y1, g.galaxian.x, g.sight.y2, 'red')
     end
-    gui.drawbox(g.galaxian_x-2, g.galaxian_y-2, g.galaxian_x+2, g.galaxian_y+2, 'green', 'clear')
+    gui.drawbox(g.galaxian.x-2, g.galaxian.y-2, g.galaxian.x+2, g.galaxian.y+2, 'green', 'clear')
   end
 
   if SHOW_TILE_MAP then
@@ -309,20 +322,20 @@ function Show(recent_games, genome)
     for _, b in pairs(g.bullets) do
       gui.drawbox(b.x - 4, b.y - 4, b.x + 4, b.y + 4, {0xFF, 0xFF, 0, 0x80}, 'clear')
     end
-    gui.drawbox(g.galaxian_x - 4, g.galaxian_y, g.galaxian_x + 4, g.galaxian_y + 8, 'green')
+    gui.drawbox(g.galaxian.x - 4, g.galaxian.y, g.galaxian.x + 4, g.galaxian.y + 8, 'green')
   end
 
   if SHOW_NETWORK and genome ~= nil then
     function NeuronPosition(id)
       local y = Y2 - DY
       if id == "o1" then
-        return {x=g.galaxian_x-DX, y=y}
+        return {x=g.galaxian.x-DX, y=y}
       end
       if id == "o2" then
-        return {x=g.galaxian_x+DX, y=y}
+        return {x=g.galaxian.x+DX, y=y}
       end
       if id == "o3" then
-        return {x=g.galaxian_x, y=y}
+        return {x=g.galaxian.x, y=y}
       end
       y = y - DY
       if IsHiddenNeuron(id) then
@@ -330,32 +343,32 @@ function Show(recent_games, genome)
         if hid % 2 == 0 then
           hid = -hid-1
         end
-        return {x=g.galaxian_x + hid * 4, y=y}
+        return {x=g.galaxian.x + hid * 4, y=y}
       end
       y = y - DY
       if id == "m" then
-        return {x=g.galaxian_x-2*DX, y=y}
+        return {x=g.galaxian.x-2*DX, y=y}
       end
       if id == "gx" then
-        return {x=g.galaxian_x-1*DX, y=y}
+        return {x=g.galaxian.x-1*DX, y=y}
       end
       if id == "bias" then
-        return {x=g.galaxian_x+1*DX, y=y}
+        return {x=g.galaxian.x+1*DX, y=y}
       end
       if id == "rnd" then
-        return {x=g.galaxian_x+2*DX, y=y}
+        return {x=g.galaxian.x+2*DX, y=y}
       end
       local kind = id:sub(1, 1)
       if kind == 's' then
         local ix = tonumber(id:sub(4, 6))
-        local x = g.galaxian_x + ix*DX + DX/2
+        local x = g.galaxian.x + ix*DX + DX/2
         local y = Y1+6*DY
         return {x=x, y=y}
       end
       if kind == 'i' or kind == 'b' then
         local ix = tonumber(id:sub(4, 6))
         local iy = tonumber(id:sub(8, 10))
-        local x = g.galaxian_x + ix*DX + DX/2
+        local x = g.galaxian.x + ix*DX + DX/2
         local y = g.sight.y0 + iy*DY + DY/2
         return {x=x, y=y}
       end
