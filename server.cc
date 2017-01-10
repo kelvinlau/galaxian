@@ -1,16 +1,38 @@
 #include <unistd.h>
-#include <sys/types.h>
 #include <string.h>
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <ctime>
 #include <sys/socket.h>
+#include <sys/time.h>
+#include <sys/types.h>
 #include <netinet/in.h>
 
 #include "cc-lib/base/logging.h"
+#include "cc-lib/base/stringprintf.h"
 #include "simplefm2.h"
 #include "emulator.h"
 #include "galaxian.h"
+
+int64 Now() {
+  struct timeval tv;
+  gettimeofday(&tv, NULL);
+  return tv.tv_sec * (int64)1000000 + tv.tv_usec;
+}
+
+class Timer {
+ public:
+  explicit Timer(string name) : name_(name), start_(Now()) {}
+
+  ~Timer() {
+    cerr << name_ << ": " << (Now() - start_) << "\n";
+  }
+
+ private:
+  const string name_;
+  const time_t start_;
+};
 
 namespace galaxian {
 
@@ -33,6 +55,9 @@ class Server {
     int max_score = 0;
 
     for (int step = 0; ; ++step) {
+      //cout << "\n";
+      //Timer timer(StringPrintf("Step %d", step));
+
       uint8 input;
       int seq;
       RecvInput(&input, &seq);
@@ -53,7 +78,7 @@ class Server {
         prev_score = 1000;  // Next respond will have reward = -1000.
       }
 
-      if (step % 1 == 0) {
+      if (step % 1000 == 0) {
         cout << "Step " << step << " Max score: " << max_score << "\n";
       }
     }
@@ -85,54 +110,61 @@ class Server {
   }
 
   void RecvInput(uint8* input, int* seq) {
-    ssize_t size = recv(sockfd_, buffer_, sizeof(buffer_), 0);
+    //Timer timer("Recv");
+    buffer_.resize(256);
+    ssize_t size = recv(sockfd_, &buffer_[0], buffer_.size(), 0);
     if (size <= 0) {
       cerr << "Recv size: " << size << "\n";
       abort();
     }
-    buffer_[size] = 0;
-    // fprintf(stderr, "Recv: %s", buffer_);
+    buffer_.resize(size);
+    // cerr << "Recv: " << buffer_ << "\n";
     char action;
-    sscanf(buffer_, "%c %d", &action, seq);
+    sscanf(buffer_.c_str(), "%c %d", &action, seq);
     *input = ToInput(action);
   }
 
   void Respond(int seq, const State& s, int reward) {
-    SendInt(seq);
-    SendInt(reward);
-    SendPoint(s.galaxian);
-    SendPoint(s.missile);
+    //Timer timer("Respond");
+    buffer_.clear();
+    AppendInt(seq);
+    AppendInt(reward);
+    AppendPoint(s.galaxian);
+    AppendPoint(s.missile);
     for (int e : s.still_enemies_encoded) {
-      SendInt(e);
+      AppendInt(e);
     }
-    SendInt(s.incoming_enemies.size());
+    AppendInt(s.incoming_enemies.size());
     for (const Point& e : s.incoming_enemies) {
-      SendPoint(e);
+      AppendPoint(e);
     }
-    SendInt(s.bullets.size());
+    AppendInt(s.bullets.size());
     for (const Point& b : s.bullets) {
-      SendPoint(b);
+      AppendPoint(b);
     }
+    SendBuffer();
   }
 
-  void SendInt(int i) {
-    SendBuffer(sprintf(buffer_, "%d\n", i));
+  void AppendInt(int i) {
+    StringAppendF(&buffer_, "%d ", i);
   }
 
-  void SendPoint(const Point& p) {
-    SendBuffer(sprintf(buffer_, "%d %d\n", p.x, p.y));
+  void AppendPoint(const Point& p) {
+    StringAppendF(&buffer_, "%d %d ", p.x, p.y);
   }
 
-  void SendBuffer(int size) {
-    // fprintf(stderr, "Send: %s", buffer_);
-    if (send(sockfd_, buffer_, size, 0) < 0) {
+  void SendBuffer() {
+    buffer_.push_back('\n');
+    //cerr << "Send: " << buffer_.size() << " bytes\n";
+    if (send(sockfd_, buffer_.data(), buffer_.size(), 0) < 0) {
       fprintf(stderr, "Send failed\n");
       abort();
     }
+    buffer_.clear();
   }
 
   int sockfd_;
-  char buffer_[256];
+  string buffer_;
 };
 
 }  // namespace galaxian

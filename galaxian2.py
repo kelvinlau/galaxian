@@ -137,10 +137,20 @@ class Point:
     self.x = x
     self.y = y
 
-  @staticmethod
-  def FromString(line):
-    x, y = map(int, line.split(' '))
-    return Point(x, y)
+
+class Timer:
+  def __init__(self, name):
+    self.name = name
+
+  def __enter__(self):
+    self.start = time.time()
+    return self
+
+  def __exit__(self, *args):
+    self.end = time.time()
+    self.interval = self.end - self.start
+    print(self.name, self.interval * 1e6)
+
 
 class Game:
   def __init__(self):
@@ -152,33 +162,40 @@ class Game:
   def Step(self, action):
     self._seq += 1
     #print(action, self._seq)
+
     self._sock.send(action + ' ' + str(self._seq) + '\n')
 
-    frame = Frame()
+    self.NextLine()
 
-    frame.seq = int(self.NextLine())
+    frame = Frame()
+    frame.seq = self.NextInt()
     assert frame.seq == self._seq, 'Expecting %d, got %d' % (self._seq, frame.seq)
-    reward = int(self.NextLine())
-    galaxian = Point.FromString(self.NextLine())
-    missile = Point.FromString(self.NextLine())
+    reward = self.NextInt()
+    galaxian = self.NextPoint()
+    missile = self.NextPoint()
     still_enemies_encoded = []
     for i in xrange(11):
-      still_enemies_encoded.append(int(self.NextLine()))
+      still_enemies_encoded.append(self.NextInt())
     incoming_enemies = []
-    for i in xrange(int(self.NextLine())):
-      incoming_enemies.append(Point.FromString(self.NextLine()))
+    for i in xrange(self.NextInt()):
+      incoming_enemies.append(self.NextPoint())
     bullets = []
-    for i in xrange(int(self.NextLine())):
-      bullets.append(Point.FromString(self.NextLine()))
+    for i in xrange(self.NextInt()):
+      bullets.append(self.NextPoint())
 
     return frame, reward
 
   def NextLine(self):
-    while True:
-      line = self._fin.readline().strip()
-      if line: break
-      time.sleep(0.1)
-    return line.strip()
+    self._line = self._fin.readline().strip()
+    self._ints = map(int, self._line.split())
+    self._idx = 0
+
+  def NextInt(self):
+    self._idx += 1
+    return self._ints[self._idx - 1]
+
+  def NextPoint(self):
+    return Point(self.NextInt(), self.NextInt())
 
 
 def TestGame():
