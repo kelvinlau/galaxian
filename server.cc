@@ -1,9 +1,10 @@
 #include <unistd.h>
-#include <string.h>
-#include <errno.h>
-#include <stdio.h>
-#include <stdlib.h>
+#include <cstring>
+#include <cerrno>
+#include <cstdio>
+#include <cstdlib>
 #include <ctime>
+#include <chrono>
 #include <sys/socket.h>
 #include <sys/time.h>
 #include <sys/types.h>
@@ -21,12 +22,23 @@ int64 Now() {
   return tv.tv_sec * (int64)1000000 + tv.tv_usec;
 }
 
+string NowStr() {
+  using namespace std::chrono;
+  system_clock::time_point p = system_clock::now();
+  time_t t = system_clock::to_time_t(p);
+  string ret = std::ctime(&t);
+  ret.pop_back();  // Get rid of '\n'
+  return ret;
+}
+
 class Timer {
  public:
   explicit Timer(string name) : name_(name), start_(Now()) {}
 
   ~Timer() {
-    cerr << name_ << ": " << (Now() - start_) << "\n";
+    int64 end = Now();
+    cerr << name_ << ": " << (end - start_) << " " << start_ << " " << end
+         << "\n";
   }
 
  private:
@@ -54,13 +66,14 @@ class Server {
     int prev_score = 0;
     int max_score = 0;
 
-    for (int step = 0; ; ++step) {
+    for (int step = 1; ; ++step) {
       //cout << "\n";
       //Timer timer(StringPrintf("Step %d", step));
 
       uint8 input;
       int seq;
       RecvInput(&input, &seq);
+      CHECK_EQ(step, seq);
 
       for (int i = 0; i < 12; ++i) {
         Emulator::Step(input);
@@ -68,7 +81,8 @@ class Server {
 
       const State s = GetState();
       const int reward = s.score - prev_score;
-      Respond(seq, s, reward);
+      Respond(seq, s, reward, input);
+      //cout << "Missile:" << s.missile.x << "," << s.missile.y << "\n";
 
       prev_score = s.score;
       max_score = std::max(max_score, s.score);
@@ -78,8 +92,9 @@ class Server {
         prev_score = 1000;  // Next respond will have reward = -1000.
       }
 
-      if (step % 1000 == 0) {
-        cout << "Step " << step << " Max score: " << max_score << "\n";
+      if (step % 100 == 0) {
+        cout << NowStr() << " Step " << step << " Max score: " << max_score
+             << "\n";
       }
     }
   }
@@ -124,11 +139,12 @@ class Server {
     *input = ToInput(action);
   }
 
-  void Respond(int seq, const State& s, int reward) {
+  void Respond(int seq, const State& s, int reward, uint8 input) {
     //Timer timer("Respond");
     buffer_.clear();
     AppendInt(seq);
     AppendInt(reward);
+    AppendChar(ToAction(input));
     AppendPoint(s.galaxian);
     AppendPoint(s.missile);
     for (int e : s.still_enemies_encoded) {
@@ -147,6 +163,10 @@ class Server {
 
   void AppendInt(int i) {
     StringAppendF(&buffer_, "%d ", i);
+  }
+
+  void AppendChar(char c) {
+    StringAppendF(&buffer_, "%c ", c);
   }
 
   void AppendPoint(const Point& p) {

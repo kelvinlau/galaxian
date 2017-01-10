@@ -16,120 +16,27 @@ import numpy as np
 import tensorflow as tf
 
 
-WIDTH = 96
-HEIGHT = 32
-NUM_SNAPSHOTS = 3
-INPUT_DIM = NUM_SNAPSHOTS * (WIDTH + WIDTH*HEIGHT*2) + 2
-OUTPUT_NAMES = ['stay', 'left', 'right', 'fire']
-OUTPUT_IDS = {'stay': 0, 'left': 1, 'right': 2, 'fire': 3}
-OUTPUT_DIM = len(OUTPUT_NAMES)  # TODO(kelvinlau): 6?
+WIDTH = 256
+HEIGHT = 240
+NUM_SNAPSHOTS = 5
+INPUT_DIM = WIDTH * HEIGHT * NUM_SNAPSHOTS
+ACTION_NAMES = ['_', 'L', 'R', 'A']
+ACTION_ID = {'_': 0, 'L': 1, 'R': 2, 'A': 3}
+OUTPUT_DIM = len(ACTION_NAMES)  # TODO(kelvinlau): 6?
 
 
-class Frame:
-  def __init__(self):
-    self.s = np.zeros((WIDTH, NUM_SNAPSHOTS))
-    self.i = np.zeros((WIDTH, HEIGHT, NUM_SNAPSHOTS))
-    self.b = np.zeros((WIDTH, HEIGHT, NUM_SNAPSHOTS))
-    self.x = 0.0
-    self.m = 0.0
-    self.action = None
-    self.action_id = None
+class Timer:
+  def __init__(self, name):
+    self.name = name
 
+  def __enter__(self):
+    self.start = int(time.time() * 1e6)
+    return self
 
-class NeuralNetwork:
-  def __init__(self):
-    # Still enemies.
-    self.input_s = tf.placeholder(tf.float32,
-        [None, WIDTH, NUM_SNAPSHOTS])
-
-    # Incoming enemies.
-    self.input_i = tf.placeholder(tf.float32,
-        [None, WIDTH, HEIGHT, NUM_SNAPSHOTS])
-
-    # Incoming bullets.
-    self.input_b = tf.placeholder(tf.float32,
-        [None, WIDTH, HEIGHT, NUM_SNAPSHOTS])
-
-    # galaxian_x
-    self.input_x = tf.placeholder(tf.float32, [None, 1])
-
-    # missile_y.
-    self.input_m = tf.placeholder(tf.float32, [None, 1])
-
-    # 96 x 32 x 6
-    input_ib = tf.concat(3, [self.input_i, self.input_b])
-
-    zeros = lambda shape: tf.Variable(tf.zeros(shape))
-
-    # 23 x 15 x 32
-    conv1 = tf.nn.relu(tf.nn.conv2d(
-      input_ib, zeros([8, 4, 6, 32]), strides = [1, 4, 2, 1],
-      padding = "VALID")
-      + zeros([32]))
-
-    # 10 x 6 x 64
-    conv2 = tf.nn.relu(tf.nn.conv2d(
-      conv1, zeros([4, 4, 32, 64]), strides = [1, 2, 2, 1],
-      padding = "VALID")
-      + zeros([64]))
-
-    # 9 x 5 x 64
-    conv3 = tf.nn.relu(tf.nn.conv2d(
-      conv2, zeros([2, 2, 64, 64]), strides = [1, 1, 1, 1],
-      padding = "VALID")
-      + zeros([64]))
-
-    # 2880 + 288 + 1 + 1 = 3170
-    # TODO: Conv input_s too?
-    all_flat = tf.concat(1, [
-      tf.reshape(conv3, [-1, 2880]),
-      tf.reshape(self.input_s, [-1, WIDTH*NUM_SNAPSHOTS]),
-      self.input_x,
-      self.input_m])
-
-    fc4 = tf.nn.relu(tf.matmul(all_flat, zeros([3170, 784])) + zeros([784]))
-
-    # Neural Network output.
-    self.output_layer = (tf.matmul(fc4, zeros([784, OUTPUT_DIM])) +
-        zeros([OUTPUT_DIM]))
-
-    # NN training.
-    self.action = tf.placeholder(tf.float32, [None, OUTPUT_DIM])
-    self.q_target = tf.placeholder(tf.float32, [None])
-    q_action = tf.reduce_sum(tf.mul(self.output_layer, self.action),
-        reduction_indices = 1)
-    cost = tf.reduce_mean(tf.square(q_action - self.q_target))
-    self.optimizer = tf.train.AdamOptimizer(1e-6).minimize(cost)
-
-  def FeedDict(self, frames):
-    return {
-      self.input_s: [f.s for f in frames],
-      self.input_i: [f.i for f in frames],
-      self.input_b: [f.b for f in frames],
-      self.input_x: [[f.x] for f in frames],
-      self.input_m: [[f.m] for f in frames],
-    }
-
-  def Eval(self, frames):
-    return self.output_layer.eval(feed_dict = self.FeedDict(frames))
-
-  def Train(self, mini_batch):
-    frame_batch = [d[0] for d in mini_batch]
-    action_batch = [d[1] for d in mini_batch]
-    reward_batch = [d[2] for d in mini_batch]
-    frame1_batch = [d[3] for d in mini_batch]
-
-    q1_batch = self.Eval(frame1_batch)
-    q_target_batch = [
-        reward_batch[i] if reward_batch[i] < 0 else
-        reward_batch[i] + LEARNING_RATE * np.max(q1_batch[i])
-        for i in xrange(len(mini_batch))
-    ]
-
-    feed_dict = self.FeedDict(frame_batch)
-    feed_dict[self.action] = action_batch
-    feed_dict[self.q_target] = q_target_batch
-    self.optimizer.run(feed_dict = feed_dict)
+  def __exit__(self, *args):
+    self.end = int(time.time() * 1e6)
+    self.interval = self.end - self.start
+    print(self.name, self.interval, self.start, self.end)
 
 
 class Point:
@@ -138,18 +45,89 @@ class Point:
     self.y = y
 
 
-class Timer:
-  def __init__(self, name):
-    self.name = name
+class Frame:
+  def __init__(self, line):
+    """Parse a Frame from a line."""
+    self._tokens = line.split()
+    self._idx = 0
 
-  def __enter__(self):
-    self.start = time.time()
-    return self
+    self.seq = self.NextInt()
 
-  def __exit__(self, *args):
-    self.end = time.time()
-    self.interval = self.end - self.start
-    print(self.name, self.interval * 1e6)
+    self.reward = self.NextInt()
+
+    self.action = self.NextToken()
+    self.action_id = ACTION_ID[self.action]
+
+    self.image = np.zeros((WIDTH, HEIGHT))
+
+    galaxian = self.NextPoint()
+    self.AddRect(galaxian, 16, 16)
+
+    missile = self.NextPoint()
+    if missile.y < 200:
+      self.AddRect(missile, 4, 12)
+
+    still_enemies = []
+    dx = self.NextInt()
+    for i in xrange(10):
+      x = (dx + 48 + 8 + 16 * i) % 256;
+      y = 108
+      mask = self.NextInt()
+      while mask:
+        if mask % 2:
+          still_enemies.append(Point(x, y))
+        mask /= 2
+        y -= 12
+    assert len(still_enemies) <= 46
+    for e in still_enemies:
+      self.AddRect(e, 10, 12)
+
+    incoming_enemies = []
+    for i in xrange(self.NextInt()):
+      incoming_enemies.append(self.NextPoint())
+    for e in incoming_enemies:
+      self.AddRect(e, 10, 12)
+
+    bullets = []
+    for i in xrange(self.NextInt()):
+      bullets.append(self.NextPoint())
+    for b in bullets:
+      self.AddRect(b, 4, 12)
+
+  def AddSnapshotsFromSelf(self):
+    self.imagex = np.reshape(self.image, (WIDTH, HEIGHT, 1))
+    for i in xrange(NUM_SNAPSHOTS-1):
+      self.imagex = np.append(
+          self.imagex,
+          np.reshape(self.image, (WIDTH, HEIGHT, 1)),
+          axis = 2)
+
+  def AddSnapshotsFromPrev(self, prev_frame):
+    self.imagex = np.append(
+        np.reshape(self.image, (WIDTH, HEIGHT, 1)),
+        prev_frame.imagex[:, :, :NUM_SNAPSHOTS-1],
+        axis = 2)
+
+  def NextToken(self):
+    self._idx += 1
+    return self._tokens[self._idx - 1]
+
+  def NextInt(self):
+    return int(self.NextToken())
+
+  def NextPoint(self):
+    return Point(self.NextInt(), self.NextInt())
+
+  def AddRect(self, c, w, h):
+    w /= 2
+    h /= 2
+    x1 = max(c.x - w, 0)
+    x2 = min(c.x + w, WIDTH)
+    y1 = max(c.y - h, 0)
+    y2 = min(c.y + h, HEIGHT)
+    if x1 >= x2 or y1 >= y2:
+      return
+    self.image[x1:x2, y1:y2] += np.full((x2-x1, y2-y1,), 1.)
 
 
 class Game:
@@ -161,41 +139,22 @@ class Game:
 
   def Step(self, action):
     self._seq += 1
+    #print()
     #print(action, self._seq)
 
     self._sock.send(action + ' ' + str(self._seq) + '\n')
 
-    self.NextLine()
+    line = self.NextLine()
 
-    frame = Frame()
-    frame.seq = self.NextInt()
+    frame = Frame(line)
+
     assert frame.seq == self._seq, 'Expecting %d, got %d' % (self._seq, frame.seq)
-    reward = self.NextInt()
-    galaxian = self.NextPoint()
-    missile = self.NextPoint()
-    still_enemies_encoded = []
-    for i in xrange(11):
-      still_enemies_encoded.append(self.NextInt())
-    incoming_enemies = []
-    for i in xrange(self.NextInt()):
-      incoming_enemies.append(self.NextPoint())
-    bullets = []
-    for i in xrange(self.NextInt()):
-      bullets.append(self.NextPoint())
+    assert frame.action == action or action == 'human'
 
-    return frame, reward
+    return frame
 
   def NextLine(self):
-    self._line = self._fin.readline().strip()
-    self._ints = map(int, self._line.split())
-    self._idx = 0
-
-  def NextInt(self):
-    self._idx += 1
-    return self._ints[self._idx - 1]
-
-  def NextPoint(self):
-    return Point(self.NextInt(), self.NextInt())
+    return self._fin.readline().strip()
 
 
 def TestGame():
@@ -213,18 +172,91 @@ def TestGame():
       game.Step('_')
 
 
+class NeuralNetwork:
+  def __init__(self):
+    # Input image.
+    self.input = tf.placeholder(tf.float32,
+        [None, WIDTH, HEIGHT, NUM_SNAPSHOTS])
+    print('input:', self.input.get_shape())
+
+    zeros = lambda shape: tf.Variable(tf.zeros(shape))
+
+    # Conv 1: 16x12 is the enemy size.
+    conv1 = tf.nn.relu(tf.nn.conv2d(
+      self.input, zeros([32, 24, 5, 64]), strides = [1, 16, 12, 1],
+      padding = "VALID")
+      + zeros([64]))
+    print('conv1:', conv1.get_shape())
+
+    # Conv 2.
+    conv2 = tf.nn.relu(tf.nn.conv2d(
+      conv1, zeros([4, 4, 64, 128]), strides = [1, 2, 2, 1],
+      padding = "VALID")
+      + zeros([128]))
+    print('conv2:', conv2.get_shape())
+
+    # Conv 3.
+    conv3 = tf.nn.relu(tf.nn.conv2d(
+      conv2, zeros([2, 2, 128, 128]), strides = [1, 1, 1, 1],
+      padding = "VALID")
+      + zeros([128]))
+    print('conv3:', conv3.get_shape())
+
+    # Flatten conv 3.
+    conv3_flat = tf.reshape(conv3, [-1, 4480])
+
+    # Full connected 4.
+    fc4 = tf.nn.relu(tf.matmul(conv3_flat, zeros([4480, 784])) + zeros([784]))
+
+    # Output.
+    self.output_layer = (tf.matmul(fc4, zeros([784, OUTPUT_DIM])) +
+        zeros([OUTPUT_DIM]))
+
+    # Training.
+    self.action = tf.placeholder(tf.float32, [None, OUTPUT_DIM])
+    self.q_target = tf.placeholder(tf.float32, [None])
+    q_action = tf.reduce_sum(tf.mul(self.output_layer, self.action),
+        reduction_indices = 1)
+    cost = tf.reduce_mean(tf.square(q_action - self.q_target))
+    self.optimizer = tf.train.AdamOptimizer(1e-6).minimize(cost)
+
+  def Eval(self, frames):
+    return self.output_layer.eval(feed_dict = {
+        self.input: [f.imagex for f in frames]
+    })
+
+  def Train(self, mini_batch):
+    frame_batch = [d[0] for d in mini_batch]
+    action_batch = [d[1] for d in mini_batch]
+    frame1_batch = [d[2] for d in mini_batch]
+
+    q1_batch = self.Eval(frame1_batch)
+    q_target_batch = [
+        frame1_batch[i].reward if frame1_batch[i].reward < 0 else
+        frame1_batch[i].reward + LEARNING_RATE * np.max(q1_batch[i])
+        for i in xrange(len(mini_batch))
+    ]
+
+    self.optimizer.run(feed_dict = {
+        self.input: [f.imagex for f in frame_batch],
+        self.action: action_batch,
+        self.q_target: q_target_batch,
+    })
+
+
 # Deep Learning Params
 HUMAN_PLAY = 0 # 2160  # 3 minutes
 LEARNING_RATE = 0.99
-INITIAL_EPSILON = 0.2 # 1.0
+INITIAL_EPSILON = 1.0
 FINAL_EPSILON = 0.05
 EXPLORE_STEPS = 500000
-OBSERVE_STEPS = 1000 # 50000
+OBSERVE_STEPS = 50000
 REPLAY_MEMORY = 50000
 MINI_BATCH_SIZE = 100
 TRAIN_INTERVAL = 24
 
-CHECKPOINT = 'galaxian2.cpk'
+CHECKPOINT_DIR = 'galaxian2/'
+CHECKPOINT_FILE = 'model.ckpt'
 SAVE_INTERVAL = 10000
 
 
@@ -232,34 +264,39 @@ def Run():
   memory = deque()
   nn = NeuralNetwork()
   game = Game()
-  frame, reward = game.Step('stay')
+  frame = game.Step('_')
+  frame.AddSnapshotsFromSelf()
 
   with tf.Session() as sess:
     sess.run(tf.global_variables_initializer())
 
     saver = tf.train.Saver()
-    save_path = tf.train.latest_checkpoint('.')
-    if save_path is not None:
-      saver.restore(sess, save_path)
+    ckpt = tf.train.get_checkpoint_state(CHECKPOINT_DIR)
+    if ckpt and ckpt.model_checkpoint_path:
+      saver.restore(sess, ckpt.model_checkpoint_path)
       print("Restored from", save_path)
+    else:
+      print("No checkpoint found")
 
     steps = 0
     epsilon = INITIAL_EPSILON
     while True:
       if steps < HUMAN_PLAY:
-        action = 'human'
+        action = 'human'  # Note only lua server supports human play, not cc server
       elif random.random() <= epsilon:
-        action = OUTPUT_NAMES[random.randrange(OUTPUT_DIM)]
+        action = ACTION_NAMES[random.randrange(OUTPUT_DIM)]
       else:
         q_val = nn.Eval([frame])[0]
-        action = OUTPUT_NAMES[np.argmax(q_val)]
+        action = ACTION_NAMES[np.argmax(q_val)]
 
-      frame1, reward = game.Step(action)
+      frame1 = game.Step(action)
+
+      frame1.AddSnapshotsFromPrev(frame)
 
       action_val = np.zeros([OUTPUT_DIM], dtype=np.int)
       action_val[frame1.action_id] = 1
 
-      memory.append((frame, action_val, reward, frame1))
+      memory.append((frame, action_val, frame1))
       if len(memory) > REPLAY_MEMORY:
         memory.popleft()
 
@@ -273,12 +310,13 @@ def Run():
         epsilon -= (INITIAL_EPSILON - FINAL_EPSILON) / EXPLORE_STEPS
 
       if steps % SAVE_INTERVAL == 0:
-        save_path = saver.save(sess, CHECKPOINT, global_step = steps)
+        save_path = saver.save(sess, CHECKPOINT_DIR + CHECKPOINT_FILE,
+                               global_step = steps)
         print("Saved to", save_path)
 
-      print("Step %d epsilon: %.6f action: %5s reward: %g" %
-          (steps, epsilon, frame.action, reward))
+      print("Step %d epsilon: %.6f action: %s reward: %g" %
+          (steps, epsilon, frame1.action, frame1.reward))
 
 
 if __name__ == '__main__':
-  TestGame()
+  Run()
