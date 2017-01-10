@@ -251,7 +251,7 @@ INITIAL_EPSILON = 1.0
 FINAL_EPSILON = 0.05
 EXPLORE_STEPS = 500000
 OBSERVE_STEPS = 50000
-REPLAY_MEMORY = 50000
+REPLAY_MEMORY = 2000  # ~6G memory
 MINI_BATCH_SIZE = 100
 TRAIN_INTERVAL = 24
 
@@ -274,7 +274,7 @@ def Run():
     ckpt = tf.train.get_checkpoint_state(CHECKPOINT_DIR)
     if ckpt and ckpt.model_checkpoint_path:
       saver.restore(sess, ckpt.model_checkpoint_path)
-      print("Restored from", save_path)
+      print("Restored from", ckpt.model_checkpoint_path)
     else:
       print("No checkpoint found")
 
