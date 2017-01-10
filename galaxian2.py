@@ -5,6 +5,7 @@ Galaxian deep neural network.
 Ref: https://www.nervanasys.com/demystifying-deep-reinforcement-learning/
 
 TODO: Save png to verify input data.
+TODO: Scale down the image by 2x.
 """
 
 from __future__ import print_function
