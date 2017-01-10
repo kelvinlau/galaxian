@@ -22,7 +22,6 @@ import tensorflow as tf
 WIDTH = 256
 HEIGHT = 240
 NUM_SNAPSHOTS = 5
-INPUT_DIM = WIDTH * HEIGHT * NUM_SNAPSHOTS
 ACTION_NAMES = ['_', 'L', 'R', 'A']
 ACTION_ID = {'_': 0, 'L': 1, 'R': 2, 'A': 3}
 OUTPUT_DIM = len(ACTION_NAMES)  # TODO(kelvinlau): 6?
@@ -48,7 +47,7 @@ class Point:
     self.y = y
 
 
-class Frame:
+class Frame2:
   def __init__(self, line):
     """Parse a Frame from a line."""
     self._tokens = line.split()
@@ -133,6 +132,102 @@ class Frame:
     self.image[x1:x2, y1:y2] += np.full((x2-x1, y2-y1,), 1.)
 
 
+class Frame:
+  # galaxian.x, missile.y, still enemies dx and 10 masks, 6 incoming enemies and
+  # 6 bullets.
+  # TODO: Try removing the 11.
+  # TODO: Try adding if the galaxian is aimming at a gap.
+  INPUT_DIM = 1 + 1 + 11 + 2 * (6 + 6)
+
+  def __init__(self, line):
+    """Parse a Frame from a line."""
+    self._tokens = line.split()
+    self._idx = 0
+
+    self.seq = self.NextInt()
+
+    self.reward = self.NextInt()
+
+    self.action = self.NextToken()
+    self.action_id = ACTION_ID[self.action]
+
+    data = []
+
+    galaxian = self.NextPoint()
+    data.append((galaxian.x - 128) / 128.0)
+
+    missile = self.NextPoint()
+    if missile.y < 200:
+      data.append(missile.y / 200.0)
+    else:
+      data.append(0)
+
+    # still_enemies
+    dx = self.NextInt()
+    data.append((dx - galaxian.x) / 256.0)
+    for i in xrange(10):
+      mask = self.NextInt()
+      data.append(1 if mask else 0)
+
+    num_incoming_enemies = self.NextInt()
+    for i in xrange(num_incoming_enemies):
+      e = self.NextPoint()
+      dx = Frame.InvertX(e.x - galaxian.x)
+      dy = e.y / 200.0
+      data.append(dx)
+      data.append(dy)
+    for i in xrange(6 - num_incoming_enemies):
+      data.append(0)
+      data.append(0)
+
+    num_bullets = self.NextInt()
+    for i in xrange(num_bullets):
+      e = self.NextPoint()
+      dx = Frame.InvertX(e.x - galaxian.x)
+      dy = e.y / 200.0
+      data.append(dx)
+      data.append(dy)
+    for i in xrange(6 - num_bullets):
+      data.append(0)
+      data.append(0)
+
+    assert len(data) == self.INPUT_DIM
+    self.data = np.array(data)
+
+  @staticmethod
+  def InvertX(dx):
+    if dx > 0:
+      return (256 - dx) / 256.0
+    elif dx < 0:
+      return (-256 - dx) / 256.0
+    else:
+      return 1
+
+  def AddSnapshotsFromSelf(self):
+    self.datax = np.reshape(self.data, (self.INPUT_DIM, 1))
+    for i in xrange(NUM_SNAPSHOTS-1):
+      self.datax = np.append(
+          self.datax,
+          np.reshape(self.data, (self.INPUT_DIM, 1)),
+          axis = 1)
+
+  def AddSnapshotsFromPrev(self, prev_frame):
+    self.datax = np.append(
+        np.reshape(self.data, (self.INPUT_DIM, 1)),
+        prev_frame.datax[:, :NUM_SNAPSHOTS-1],
+        axis = 1)
+
+  def NextToken(self):
+    self._idx += 1
+    return self._tokens[self._idx - 1]
+
+  def NextInt(self):
+    return int(self.NextToken())
+
+  def NextPoint(self):
+    return Point(self.NextInt(), self.NextInt())
+
+
 class Game:
   def __init__(self):
     self._sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -175,7 +270,7 @@ def TestGame():
       game.Step('_')
 
 
-class NeuralNetwork:
+class NeuralNetwork2:
   def __init__(self):
     # Input image.
     self.input = tf.placeholder(tf.float32,
@@ -247,19 +342,75 @@ class NeuralNetwork:
     })
 
 
+class NeuralNetwork:
+  def __init__(self):
+    # Input.
+    self.input = tf.placeholder(tf.float32,
+        [None, Frame.INPUT_DIM, NUM_SNAPSHOTS])
+    print('input:', self.input.get_shape())
+
+    zeros = lambda shape: tf.Variable(tf.zeros(shape))
+
+    # Flatten input.
+    INPUT_FLAT_DIM = Frame.INPUT_DIM * NUM_SNAPSHOTS
+    input_flat = tf.reshape(self.input, [-1, INPUT_FLAT_DIM])
+
+    # Full connected 1.
+    fc1 = tf.nn.relu(tf.matmul(input_flat, zeros([INPUT_FLAT_DIM, 128])) +
+        zeros([128]))
+
+    # Full connected 2.
+    fc2 = tf.nn.relu(tf.matmul(fc1, zeros([128, 64])) + zeros([64]))
+
+    # Output.
+    self.output_layer = (tf.matmul(fc2, zeros([64, OUTPUT_DIM])) +
+        zeros([OUTPUT_DIM]))
+
+    # Training.
+    self.action = tf.placeholder(tf.float32, [None, OUTPUT_DIM])
+    self.q_target = tf.placeholder(tf.float32, [None])
+    q_action = tf.reduce_sum(tf.mul(self.output_layer, self.action),
+        reduction_indices = 1)
+    cost = tf.reduce_mean(tf.square(q_action - self.q_target))
+    self.optimizer = tf.train.AdamOptimizer(1e-6).minimize(cost)
+
+  def Eval(self, frames):
+    return self.output_layer.eval(feed_dict = {
+        self.input: [f.datax for f in frames]
+    })
+
+  def Train(self, mini_batch):
+    frame_batch = [d[0] for d in mini_batch]
+    action_batch = [d[1] for d in mini_batch]
+    frame1_batch = [d[2] for d in mini_batch]
+
+    q1_batch = self.Eval(frame1_batch)
+    q_target_batch = [
+        frame1_batch[i].reward if frame1_batch[i].reward < 0 else
+        frame1_batch[i].reward + LEARNING_RATE * np.max(q1_batch[i])
+        for i in xrange(len(mini_batch))
+    ]
+
+    self.optimizer.run(feed_dict = {
+        self.input: [f.datax for f in frame_batch],
+        self.action: action_batch,
+        self.q_target: q_target_batch,
+    })
+
+
 # Deep Learning Params
 # Note only lua server supports human play, cc server doesn't.
-HUMAN_PLAY = 0 # 2160  # 3 minutes
+HUMAN_PLAY = 0 # 2000  # ~6 minutes
 LEARNING_RATE = 0.99
 INITIAL_EPSILON = 1.0
 FINAL_EPSILON = 0.05
 EXPLORE_STEPS = 500000
-OBSERVE_STEPS = 50000
-REPLAY_MEMORY = 2000  # ~6G memory
+OBSERVE_STEPS = 10000
+REPLAY_MEMORY = 10000 # 2000  # ~6G memory
 MINI_BATCH_SIZE = 100
 TRAIN_INTERVAL = 24
 
-CHECKPOINT_DIR = 'galaxian2/'
+CHECKPOINT_DIR = 'galaxian3/'
 CHECKPOINT_FILE = 'model.ckpt'
 SAVE_INTERVAL = 10000
 
