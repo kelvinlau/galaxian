@@ -4,3 +4,9 @@
 *.frames
 *.cpk*
 checkpoint
+galaxian_test
+server
+*.nes
+*.basis
+*.fm2
+*.o
