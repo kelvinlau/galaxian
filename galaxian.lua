@@ -21,12 +21,12 @@ require("game")
 SHOW_GRID = false
 SHOW_COOR = false
 SHOW_OBJECTS = false
-SHOW_TILE_MAP = true
+SHOW_TILE_MAP = false
 SHOW_BANNER = true
-SHOW_AI_VISION = true
-SHOW_NETWORK = true
+SHOW_AI_VISION = false
+SHOW_NETWORK = false
 
-WORK_DIR = "Z:/Users/kelvinlau/neat"
+WORK_DIR = "Z:/Users/kelvinlau/galaxian"
 FILENAME = "galaxian.v8.pool"
 
 PLAY_TOP = false
