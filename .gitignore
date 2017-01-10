@@ -3,6 +3,7 @@
 *.ctrl
 *.frames
 *.ckpt*
+*.cpk*
 **/checkpoint
 galaxian_test
 server
