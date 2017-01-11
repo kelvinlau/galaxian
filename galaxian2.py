@@ -146,7 +146,7 @@ class Frame:
 
     self.seq = self.NextInt()
 
-    self.reward = self.NextInt()
+    self.reward = max(0, self.NextInt() + 1)
 
     self.action = self.NextToken()
     self.action_id = ACTION_ID[self.action]
@@ -226,6 +226,9 @@ class Frame:
 
   def NextPoint(self):
     return Point(self.NextInt(), self.NextInt())
+
+  def CheckSum(self):
+    return np.sum(self.datax)
 
 
 class Game:
@@ -318,7 +321,8 @@ class NeuralNetwork2:
     q_action = tf.reduce_sum(tf.mul(self.output_layer, self.action),
         reduction_indices = 1)
     cost = tf.reduce_mean(tf.square(q_action - self.q_target))
-    self.optimizer = tf.train.AdamOptimizer(1e-6).minimize(cost)
+    self.optimizer = tf.train.AdamOptimizer(
+        learning_rate=1e-2, epsilon=1e-3).minimize(cost)
 
   def Eval(self, frames):
     return self.output_layer.eval(feed_dict = {
@@ -332,8 +336,8 @@ class NeuralNetwork2:
 
     q1_batch = self.Eval(frame1_batch)
     q_target_batch = [
-        frame1_batch[i].reward if frame1_batch[i].reward < 0 else
-        frame1_batch[i].reward + LEARNING_RATE * np.max(q1_batch[i])
+        frame1_batch[i].reward if frame1_batch[i].reward <= 0 else
+        frame1_batch[i].reward + GAMMA * np.max(q1_batch[i])
         for i in xrange(len(mini_batch))
     ]
 
@@ -373,8 +377,9 @@ class NeuralNetwork:
     self.q_target = tf.placeholder(tf.float32, [None])
     q_action = tf.reduce_sum(tf.mul(self.output_layer, self.action),
         reduction_indices = 1)
-    cost = tf.reduce_mean(tf.square(q_action - self.q_target))
-    self.optimizer = tf.train.AdamOptimizer(1e-6).minimize(cost)
+    self.cost = tf.reduce_mean(tf.square(q_action - self.q_target))
+    self.optimizer = tf.train.AdamOptimizer(
+        learning_rate=1e-2, epsilon=1e-3).minimize(self.cost)
 
   def Eval(self, frames):
     return self.output_layer.eval(feed_dict = {
@@ -389,30 +394,32 @@ class NeuralNetwork:
     q1_batch = self.Eval(frame1_batch)
     q_target_batch = [
         frame1_batch[i].reward if frame1_batch[i].reward < 0 else
-        frame1_batch[i].reward + LEARNING_RATE * np.max(q1_batch[i])
+        frame1_batch[i].reward + GAMMA * np.max(q1_batch[i])
         for i in xrange(len(mini_batch))
     ]
 
-    self.optimizer.run(feed_dict = {
+    feed_dict = {
         self.input: [f.datax for f in frame_batch],
         self.action: action_batch,
         self.q_target: q_target_batch,
-    })
+    }
+    self.optimizer.run(feed_dict = feed_dict)
+    return self.cost.eval(feed_dict = feed_dict)
 
 
 # Deep Learning Params
-LEARNING_RATE = 0.99
-INITIAL_EPSILON = 1.0
-FINAL_EPSILON = 0.05
+GAMMA = 0.99
+INITIAL_EPSILON = 0.5 # 1.0
+FINAL_EPSILON = 0.05 # 0.05
 EXPLORE_STEPS = 500000
-OBSERVE_STEPS = 10000
+OBSERVE_STEPS = 0 # 10000
 REPLAY_MEMORY = 10000 # 2000  # ~6G memory
 MINI_BATCH_SIZE = 100
-TRAIN_INTERVAL = 24
+TRAIN_INTERVAL = 10  # 24
 
-CHECKPOINT_DIR = 'galaxian3/'
+CHECKPOINT_DIR = 'galaxian3b/'
 CHECKPOINT_FILE = 'model.ckpt'
-SAVE_INTERVAL = 10000
+SAVE_INTERVAL = 1000 # 10000
 
 
 def Run():
@@ -435,6 +442,7 @@ def Run():
 
     steps = 0
     epsilon = INITIAL_EPSILON
+    cost = 1e9
     while True:
       if random.random() <= epsilon:
         q_val = None
@@ -456,7 +464,10 @@ def Run():
 
       if steps % TRAIN_INTERVAL == 0 and steps > OBSERVE_STEPS:
         mini_batch = random.sample(memory, min(len(memory), MINI_BATCH_SIZE))
-        nn.Train(mini_batch)
+        mini_batch.append(memory[-1])
+        cost = nn.Train(mini_batch)
+
+      qx_val = nn.Eval([frame])[0]
 
       frame = frame1
       steps += 1
@@ -468,8 +479,12 @@ def Run():
                                global_step = steps)
         print("Saved to", save_path)
 
-      print("Step %d epsilon: %.6f action: %s reward: %g" %
-          (steps, epsilon, frame1.action, frame1.reward))
+      print("Step %7d epsilon: %.6f action: %s reward: %4.0f q: %-40s "
+          "qx: %-40s cost: %8.2f" %
+          (steps, epsilon, frame1.action, frame1.reward,
+            ' '.join(map(str, q_val)) if q_val is not None else '',
+            ' '.join(map(str, qx_val)) if qx_val is not None else '',
+            cost))
 
 
 if __name__ == '__main__':
