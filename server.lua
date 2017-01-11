@@ -2,6 +2,7 @@
 --
 -- Author: kelvinlau
 
+require("auxlib");
 require("game")
 
 ---- Configs ----
@@ -101,6 +102,17 @@ end
 INIT_STATE = savestate.create(9)
 savestate.save(INIT_STATE)
 
+human_play = false
+btn = iup.button{title="Human play"};
+btn.action = 
+  function (self) 
+    human_play = not human_play
+  end
+
+dialogs = dialogs + 1;
+handles[dialogs] = iup.dialog{ btn, title="Dialog Title"; };
+handles[dialogs]:show();
+
 local prev_score = 0
 local max_score = 0
 
@@ -118,6 +130,10 @@ while true do
   local control = nil
   local seq = nil
   control, seq = ReadControl(client)
+
+  if human_play then
+    control = {}
+  end
 
   for i = 1, 12 do
     ShowScore(max_score)

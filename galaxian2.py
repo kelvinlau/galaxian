@@ -246,8 +246,10 @@ class Game:
 
     frame = Frame(line)
 
-    assert frame.seq == self._seq, 'Expecting %d, got %d' % (self._seq, frame.seq)
-    assert frame.action == action or action == 'H'
+    assert frame.seq == self._seq, 'Expecting %d, got %d' % (self._seq,
+        frame.seq)
+    # assert frame.action == action, 'Expecting %s, got %s' % (action,
+    #     frame.action)
 
     return frame
 
@@ -399,8 +401,6 @@ class NeuralNetwork:
 
 
 # Deep Learning Params
-# Note only lua server supports human play, cc server doesn't.
-HUMAN_PLAY = 0 # 2000  # ~6 minutes
 LEARNING_RATE = 0.99
 INITIAL_EPSILON = 1.0
 FINAL_EPSILON = 0.05
@@ -436,9 +436,8 @@ def Run():
     steps = 0
     epsilon = INITIAL_EPSILON
     while True:
-      if steps < HUMAN_PLAY:
-        action = 'H'
-      elif random.random() <= epsilon:
+      if random.random() <= epsilon:
+        q_val = None
         action = ACTION_NAMES[random.randrange(OUTPUT_DIM)]
       else:
         q_val = nn.Eval([frame])[0]
