@@ -1,12 +1,13 @@
-"""Galaxian NN trainer.
+"""Galaxian deep neural network.
 
-Galaxian deep neural network.
-
-Ref: https://www.nervanasys.com/demystifying-deep-reinforcement-learning/
+Ref:
+https://storage.googleapis.com/deepmind-media/dqn/DQNNaturePaper.pdf
+https://www.nervanasys.com/demystifying-deep-reinforcement-learning/
 
 TODO: Save png to verify input data.
 TODO: Scale down the image by 2x.
 TODO: Sigmoid vs ReLu.
+TODO: Separated target Q network.
 """
 
 from __future__ import print_function
@@ -65,7 +66,8 @@ class Frame:
 
     self.seq = self.NextInt()
 
-    self.reward = max(0, self.NextInt() + 1)
+    # Cap reward in [-1, 1].
+    self.reward = max(-1, min(1, self.NextInt()))
 
     self.action = self.NextToken()
     self.action_id = ACTION_ID[self.action]
@@ -278,12 +280,12 @@ class NeuralNetwork:
       # Full connected 1.
       self.w1 = var([INPUT_FLAT_DIM, 16])
       self.b1 = var([16])
-      fc1 = tf.nn.sigmoid(tf.matmul(input_flat, self.w1) + self.b1)
+      fc1 = tf.nn.relu(tf.matmul(input_flat, self.w1) + self.b1)
 
       # Full connected 2.
       self.w2 = var([16, 8])
       self.b2 = var([8])
-      fc2 = tf.nn.sigmoid(tf.matmul(fc1, self.w2) + self.b2)
+      fc2 = tf.nn.relu(tf.matmul(fc1, self.w2) + self.b2)
 
       # Output.
       self.w3 = var([8, OUTPUT_DIM])
@@ -327,6 +329,7 @@ class NeuralNetwork:
           var([OUTPUT_DIM]))
 
     # Training.
+    # Error clipping to [-1, 1]?
     self.action = tf.placeholder(tf.float32, [None, OUTPUT_DIM])
     self.q_target = tf.placeholder(tf.float32, [None])
     q_action = tf.reduce_sum(tf.mul(self.output_layer, self.action),
@@ -371,23 +374,23 @@ class NeuralNetwork:
         )
 
 
-# Deep Learning params
+# Hyperparameters.
 GAMMA = 0.99
-INITIAL_EPSILON = 0.1 # 1.0
-FINAL_EPSILON = 0.05 # 0.05
+INITIAL_EPSILON = 1.0
+FINAL_EPSILON = 0.05
 EXPLORE_STEPS = 500000
 OBSERVE_STEPS = 0 # 10000
 REPLAY_MEMORY = 10000 # 2000  # ~6G memory
-MINI_BATCH_SIZE = 100
+MINI_BATCH_SIZE = 32
 TRAIN_INTERVAL = 1
 
-CHECKPOINT_DIR = 'galaxian2/'
+CHECKPOINT_DIR = 'galaxian2b/'
 CHECKPOINT_FILE = 'model.ckpt'
 SAVE_INTERVAL = 1000 # 10000
 
 
 def FormatList(l):
-  return '[' + ' '.join(['%7.2f' % x for x in l]) + ']'
+  return '[' + ' '.join(['%7.3f' % x for x in l]) + ']'
 
 def Run():
   memory = deque()
@@ -447,8 +450,8 @@ def Run():
                                global_step = steps)
         print("Saved to", save_path)
 
-      print("Step %d epsilon: %.6f nn: %s q: %-33s action: %s reward: %3.0f "
-          "cost: %8.2f q_target: %8.2f" %
+      print("Step %d epsilon: %.6f nn: %s q: %-33s action: %s reward: %2.0f "
+          "cost: %8.3f q_target: %8.3f" %
           (steps, epsilon, FormatList(nn.Std()), FormatList(q_val),
             frame1.action, frame1.reward, cost, q_target_val))
 
