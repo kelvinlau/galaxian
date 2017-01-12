@@ -1,8 +1,7 @@
-
 #include "simplefm2.h"
 
-#include "../cc-lib/util.h"
-#include "tasbot.h"
+#include "cc-lib/base/stringprintf.h"
+#include "cc-lib/util.h"
 
 using namespace std;
 

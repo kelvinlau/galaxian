@@ -113,6 +113,10 @@ State GetState() {
   return s;
 }
 
+bool IsDead() {
+  return RAM[0x41] != 0;
+}
+
 char ToAction(uint8 input) {
   // RLDUTSBA
   if (input & 0x01) return 'A';

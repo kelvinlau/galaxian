@@ -75,8 +75,14 @@ class Server {
       RecvInput(&input, &seq);
       CHECK_EQ(step, seq);
 
-      for (int i = 0; i < 12; ++i) {
+      for (int i = 0; i < 10; ++i) {
         Emulator::Step(input);
+        if (IsDead()) {
+          SkipFrames(60);
+          Emulator::Load(&beginning);
+          prev_score = 1000;  // Next respond will have reward = -1000.
+          break;
+        }
       }
 
       const State s = GetState();
@@ -86,11 +92,6 @@ class Server {
 
       prev_score = s.score;
       max_score = std::max(max_score, s.score);
-
-      if (s.lifes < 2) {
-        Emulator::Load(&beginning);
-        prev_score = 1000;  // Next respond will have reward = -1000.
-      }
 
       if (step % 100 == 0) {
         cout << NowStr() << " Step " << step << " Max score: " << max_score
@@ -110,7 +111,7 @@ class Server {
       cerr << "INVALID socket\n";
       abort();
     }
-    if (bind(sockfd_, (sockaddr *)&sin, sizeof(sin))) {
+    if (::bind(sockfd_, (sockaddr *)&sin, sizeof(sin))) {
       cerr << "Failed to bind\n";
       abort();
     }
