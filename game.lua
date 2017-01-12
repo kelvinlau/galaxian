@@ -136,8 +136,11 @@ function GetGame()
   return g
 end
 
-function GetAction()
-  local controls = joypad.get(1)
+function IsDead()
+  return memory.readbyte(0x41) ~= 0
+end
+
+function ToAction(controls)
   if controls["A"] then
     return "A"
   elseif controls["left"] and not controls["right"] then

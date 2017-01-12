@@ -157,23 +157,28 @@ while true do
     control = {}
   end
 
-  for i = 1, 5 do
+  -- Advance 10 frames. If dead, start over.
+  for i = 1, 10 do
     ShowScore(max_score)
     joypad.set(1, control)
-    emu.frameadvance();
+    emu.frameadvance()
+    if IsDead() then
+      SkipFrames(60)
+      savestate.load(INIT_STATE)
+      prev_score = 1000  -- Next respond with have reward = -1000.
+      break
+    end
+  end
+
+  if control == {} then
+    control = joypad.get(1, control)
   end
 
   local g = GetGame()
-  local action = GetAction()
+  local action = ToAction(control)
   local reward = g.score - prev_score
   Respond(client, seq, g, action, reward)
 
   prev_score = g.score
   max_score = math.max(max_score, g.score)
-
-  -- Reset if dead.
-  if g.lifes < 2 then
-    savestate.load(INIT_STATE)
-    prev_score = 1000  -- Next respond with have reward = -1000.
-  end
 end
