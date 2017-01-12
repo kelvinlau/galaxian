@@ -360,14 +360,14 @@ class NeuralNetwork:
     self.optimizer.run(feed_dict = feed_dict)
     return self.cost.eval(feed_dict = feed_dict), q_target_batch[-1]
 
-  def CheckSums(self):
+  def Std(self):
     return (
-        np.sum(self.w1.eval()),
-        np.sum(self.b1.eval()),
-        np.sum(self.w2.eval()),
-        np.sum(self.b2.eval()),
-        np.sum(self.w3.eval()),
-        np.sum(self.b3.eval()),
+        np.std(self.w1.eval()),
+        np.std(self.b1.eval()),
+        np.std(self.w2.eval()),
+        np.std(self.b2.eval()),
+        np.std(self.w3.eval()),
+        np.std(self.b3.eval()),
         )
 
 
@@ -385,6 +385,9 @@ CHECKPOINT_DIR = 'galaxian2/'
 CHECKPOINT_FILE = 'model.ckpt'
 SAVE_INTERVAL = 1000 # 10000
 
+
+def FormatList(l):
+  return '[' + ' '.join(['%7.2f' % x for x in l]) + ']'
 
 def Run():
   memory = deque()
@@ -442,10 +445,10 @@ def Run():
                                global_step = steps)
         print("Saved to", save_path)
 
-      print("Step %d epsilon: %.6f nn: %s action: %s reward: %3.0f "
-          "q: %-32s cost: %8.2f q_target: %8.2f" %
-          (steps, epsilon, nn.CheckSums(), frame1.action, frame1.reward,
-            ' '.join(map(lambda v : '%7.2f' % v, q_val)), cost, q_target_val))
+      print("Step %d epsilon: %.6f nn: %s q: %-33s action: %s reward: %3.0f "
+          "cost: %8.2f q_target: %8.2f" %
+          (steps, epsilon, FormatList(nn.Std()), FormatList(q_val),
+            frame1.action, frame1.reward, cost, q_target_val))
 
 
 if __name__ == '__main__':
