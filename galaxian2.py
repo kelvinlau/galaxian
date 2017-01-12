@@ -7,7 +7,8 @@ https://www.nervanasys.com/demystifying-deep-reinforcement-learning/
 TODO: Save png to verify input data.
 TODO: Scale down the image by 2x.
 TODO: Sigmoid vs ReLu.
-TODO: Separated target Q network.
+TODO: Random no-op actions at the start of episodes.
+TODO: Double Q Learning: https://arxiv.org/pdf/1509.06461v3.pdf
 """
 
 from __future__ import print_function
@@ -277,12 +278,12 @@ class NeuralNetwork:
       INPUT_FLAT_DIM = INPUT_DIM * NUM_SNAPSHOTS
       input_flat = tf.reshape(self.input, [-1, INPUT_FLAT_DIM])
 
-      # Full connected 1.
+      # Fully connected 1.
       self.w1 = var([INPUT_FLAT_DIM, 16])
       self.b1 = var([16])
       fc1 = tf.nn.relu(tf.matmul(input_flat, self.w1) + self.b1)
 
-      # Full connected 2.
+      # Fully connected 2.
       self.w2 = var([16, 8])
       self.b2 = var([8])
       fc2 = tf.nn.relu(tf.matmul(fc1, self.w2) + self.b2)
@@ -290,7 +291,22 @@ class NeuralNetwork:
       # Output.
       self.w3 = var([8, OUTPUT_DIM])
       self.b3 = var([OUTPUT_DIM])
-      self.output_layer = (tf.matmul(fc2, self.w3) + self.b3)
+      self.output = (tf.matmul(fc2, self.w3) + self.b3)
+
+      # Fully connected 1 (target network).
+      self.t_w1 = var([INPUT_FLAT_DIM, 16])
+      self.t_b1 = var([16])
+      t_fc1 = tf.nn.relu(tf.matmul(input_flat, self.t_w1) + self.t_b1)
+
+      # Fully connected 2 (target network).
+      self.t_w2 = var([16, 8])
+      self.t_b2 = var([8])
+      t_fc2 = tf.nn.relu(tf.matmul(t_fc1, self.t_w2) + self.t_b2)
+
+      # Output (target network).
+      self.t_w3 = var([8, OUTPUT_DIM])
+      self.t_b3 = var([OUTPUT_DIM])
+      self.t_output = (tf.matmul(t_fc2, self.t_w3) + self.t_b3)
     else:
       # Input image.
       self.input = tf.placeholder(tf.float32,
@@ -321,25 +337,33 @@ class NeuralNetwork:
       # Flatten conv 3.
       conv3_flat = tf.reshape(conv3, [-1, 4480])
 
-      # Full connected 4.
+      # Fully connected 4.
       fc4 = tf.nn.relu(tf.matmul(conv3_flat, var([4480, 784])) + var([784]))
 
       # Output.
-      self.output_layer = (tf.matmul(fc4, var([784, OUTPUT_DIM])) +
+      self.output = (tf.matmul(fc4, var([784, OUTPUT_DIM])) +
           var([OUTPUT_DIM]))
 
     # Training.
     # Error clipping to [-1, 1]?
     self.action = tf.placeholder(tf.float32, [None, OUTPUT_DIM])
     self.q_target = tf.placeholder(tf.float32, [None])
-    q_action = tf.reduce_sum(tf.mul(self.output_layer, self.action),
+    q_action = tf.reduce_sum(tf.mul(self.output, self.action),
         reduction_indices = 1)
     self.cost = tf.reduce_mean(tf.square(q_action - self.q_target))
     self.optimizer = tf.train.AdamOptimizer(
         learning_rate=1e-2, epsilon=1e-3).minimize(self.cost)
 
+  def Vars(self):
+    return [self.w1, self.b1, self.w2, self.b2, self.w3, self.b3]
+
   def Eval(self, frames):
-    return self.output_layer.eval(feed_dict = {
+    return self.output.eval(feed_dict = {
+        self.input: [f.datax for f in frames]
+    })
+
+  def EvalTarget(self, frames):
+    return self.t_output.eval(feed_dict = {
         self.input: [f.datax for f in frames]
     })
 
@@ -348,7 +372,7 @@ class NeuralNetwork:
     action_batch = [d[1] for d in mini_batch]
     frame1_batch = [d[2] for d in mini_batch]
 
-    q1_batch = self.Eval(frame1_batch)
+    q1_batch = self.EvalTarget(frame1_batch)
     q_target_batch = [
         frame1_batch[i].reward if frame1_batch[i].reward <= 0 else
         frame1_batch[i].reward + GAMMA * np.max(q1_batch[i])
@@ -363,6 +387,14 @@ class NeuralNetwork:
     self.optimizer.run(feed_dict = feed_dict)
     return self.cost.eval(feed_dict = feed_dict), q_target_batch[-1]
 
+  def UpdateTargetNetwork(self, sess):
+    sess.run(self.t_w1.assign(self.w1))
+    sess.run(self.t_b1.assign(self.b1))
+    sess.run(self.t_w2.assign(self.w2))
+    sess.run(self.t_b2.assign(self.b2))
+    sess.run(self.t_w3.assign(self.w3))
+    sess.run(self.t_b3.assign(self.b3))
+
   def Std(self):
     return (
         np.std(self.w1.eval()),
@@ -373,18 +405,39 @@ class NeuralNetwork:
         np.std(self.b3.eval()),
         )
 
+  def CheckSum(self):
+    return (
+        np.sum(self.w1.eval()),
+        np.sum(self.b1.eval()),
+        np.sum(self.w2.eval()),
+        np.sum(self.b2.eval()),
+        np.sum(self.w3.eval()),
+        np.sum(self.b3.eval()),
+        )
+
+  def CheckSumTarget(self):
+    return (
+        np.sum(self.t_w1.eval()),
+        np.sum(self.t_b1.eval()),
+        np.sum(self.t_w2.eval()),
+        np.sum(self.t_b2.eval()),
+        np.sum(self.t_w3.eval()),
+        np.sum(self.t_b3.eval()),
+        )
+
 
 # Hyperparameters.
 GAMMA = 0.99
 INITIAL_EPSILON = 1.0
-FINAL_EPSILON = 0.05
+FINAL_EPSILON = 0.1
 EXPLORE_STEPS = 500000
 OBSERVE_STEPS = 0 # 10000
-REPLAY_MEMORY = 10000 # 2000  # ~6G memory
+REPLAY_MEMORY = 100000 # 2000  # ~6G memory
 MINI_BATCH_SIZE = 32
 TRAIN_INTERVAL = 1
+UPDATE_TARGET_NETWORK_INTERVAL = 10000
 
-CHECKPOINT_DIR = 'galaxian2b/'
+CHECKPOINT_DIR = 'galaxian2c/'
 CHECKPOINT_FILE = 'model.ckpt'
 SAVE_INTERVAL = 1000 # 10000
 
@@ -402,7 +455,7 @@ def Run():
   with tf.Session() as sess:
     sess.run(tf.global_variables_initializer())
 
-    saver = tf.train.Saver()
+    saver = tf.train.Saver(nn.Vars())
     if not os.path.exists(CHECKPOINT_DIR):
       os.makedirs(CHECKPOINT_DIR)
     ckpt = tf.train.get_checkpoint_state(CHECKPOINT_DIR)
@@ -411,6 +464,8 @@ def Run():
       print("Restored from", ckpt.model_checkpoint_path)
     else:
       print("No checkpoint found")
+
+    nn.UpdateTargetNetwork(sess)
 
     steps = 0
     epsilon = INITIAL_EPSILON
@@ -442,8 +497,14 @@ def Run():
 
       frame = frame1
       steps += 1
+
       if epsilon > FINAL_EPSILON:
         epsilon -= (INITIAL_EPSILON - FINAL_EPSILON) / EXPLORE_STEPS
+
+      if steps % UPDATE_TARGET_NETWORK_INTERVAL == 0:
+        print('Target network before:', nn.CheckSumTarget())
+        nn.UpdateTargetNetwork(sess)
+        print('Target network after:', nn.CheckSumTarget())
 
       if steps % SAVE_INTERVAL == 0:
         save_path = saver.save(sess, CHECKPOINT_DIR + CHECKPOINT_FILE,
@@ -452,7 +513,7 @@ def Run():
 
       print("Step %d epsilon: %.6f nn: %s q: %-33s action: %s reward: %2.0f "
           "cost: %8.3f q_target: %8.3f" %
-          (steps, epsilon, FormatList(nn.Std()), FormatList(q_val),
+          (steps, epsilon, FormatList(nn.CheckSum()), FormatList(q_val),
             frame1.action, frame1.reward, cost, q_target_val))
 
 
