@@ -5,10 +5,6 @@
 require("auxlib");
 require("game")
 
----- Configs ----
-
-RESET = true
-
 ---- Responding ----
 
 function Respond(client, seq, g, action, reward)
@@ -94,27 +90,53 @@ end
 
 emu.print("Running Galaxian server")
 
-if RESET then
-  Reset()
-  emu.speedmode("normal")
-end
-
+Reset()
 INIT_STATE = savestate.create(9)
 savestate.save(INIT_STATE)
 
 human_play = false
-btn = iup.button{title="Human play"};
-btn.action = 
-  function (self) 
-    human_play = not human_play
-  end
+prev_score = 0
+max_score = 0
 
 dialogs = dialogs + 1;
-handles[dialogs] = iup.dialog{ btn, title="Dialog Title"; };
+handles[dialogs] = iup.dialog{iup.vbox{
+  iup.button{
+    title="Human play",
+    action=
+      function (self)
+        human_play = not human_play
+        if human_play then
+          emu.speedmode("normal")
+        else
+          emu.speedmode("turbo")
+        end
+      end
+  },
+  iup.button{
+    title="Clear score",
+    action=
+      function (self)
+        max_score = 0
+      end
+  },
+  iup.button{
+    title="Save",
+    action=
+      function (self)
+        savestate.save(INIT_STATE)
+      end
+  },
+  iup.button{
+    title="Reset",
+    action=
+      function (self)
+        Reset()
+        savestate.save(INIT_STATE)
+      end
+  },
+  margin="20x20"},
+  title=""}
 handles[dialogs]:show();
-
-local prev_score = 0
-local max_score = 0
 
 local socket = require("socket")
 local server = assert(socket.bind("*", 62343))
@@ -135,7 +157,7 @@ while true do
     control = {}
   end
 
-  for i = 1, 12 do
+  for i = 1, 5 do
     ShowScore(max_score)
     joypad.set(1, control)
     emu.frameadvance();
