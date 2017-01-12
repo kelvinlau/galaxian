@@ -7,12 +7,9 @@
 --
 -- TODO ideas:
 -- * Run on a cluster using GUI-less emulation.
--- * Time traveling.
--- * Learn from human (back propagation).
 -- * Hidden layers in BasicGenome?
 -- * Incoming enemies and bullets' coordinates as inputs (v7).
--- * Recurrent Neural Network.
--- * Use IUP to build forms.
+-- * Merge v4's pool.
 
 require("game")
 
@@ -890,7 +887,7 @@ function SavePool()
   if READ_ONLY then
     return
   end
-  WriteFile(string.format("backup.%04d.%s", pool.generation, FILENAME))
+  WriteFile(string.format("backup/%04d.%s", pool.generation, FILENAME))
   WriteFile(FILENAME)
 end
 
