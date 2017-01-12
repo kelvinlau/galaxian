@@ -38,6 +38,8 @@ ACTION_NAMES = ['_', 'L', 'R', 'A']
 ACTION_ID = {'_': 0, 'L': 1, 'R': 2, 'A': 3}
 OUTPUT_DIM = len(ACTION_NAMES)  # TODO(kelvinlau): 6?
 
+DOUBLE_Q = False
+
 
 class Timer:
   def __init__(self, name):
@@ -347,10 +349,10 @@ class NeuralNetwork:
     # Training.
     # Error clipping to [-1, 1]?
     self.action = tf.placeholder(tf.float32, [None, OUTPUT_DIM])
-    self.q_target = tf.placeholder(tf.float32, [None])
+    self.y = tf.placeholder(tf.float32, [None])
     q_action = tf.reduce_sum(tf.mul(self.output, self.action),
         reduction_indices = 1)
-    self.cost = tf.reduce_mean(tf.square(q_action - self.q_target))
+    self.cost = tf.reduce_mean(tf.square(q_action - self.y))
     self.optimizer = tf.train.AdamOptimizer(
         learning_rate=1e-2, epsilon=1e-3).minimize(self.cost)
 
@@ -372,20 +374,31 @@ class NeuralNetwork:
     action_batch = [d[1] for d in mini_batch]
     frame1_batch = [d[2] for d in mini_batch]
 
-    q1_batch = self.EvalTarget(frame1_batch)
-    q_target_batch = [
-        frame1_batch[i].reward if frame1_batch[i].reward <= 0 else
-        frame1_batch[i].reward + GAMMA * np.max(q1_batch[i])
-        for i in xrange(len(mini_batch))
-    ]
+    t_q1_batch = self.EvalTarget(frame1_batch)
+    y_batch = [0] * len(mini_batch)
+    if not DOUBLE_Q:
+      for i in xrange(len(mini_batch)):
+        reward = frame1_batch[i].reward
+        if reward < 0:
+          y_batch[i] = reward
+        else:
+          y_batch[i] = reward + GAMMA * np.max(t_q1_batch[i])
+    else:
+      q1_batch = self.Eval(frame1_batch)
+      for i in xrange(len(mini_batch)):
+        reward = frame1_batch[i].reward
+        if reward < 0:
+          y_batch[i] = reward
+        else:
+          y_batch[i] = reward + GAMMA * t_q1_batch[i][np.argmax(q1_batch[i])]
 
     feed_dict = {
         self.input: [f.datax for f in frame_batch],
         self.action: action_batch,
-        self.q_target: q_target_batch,
+        self.y: y_batch,
     }
     self.optimizer.run(feed_dict = feed_dict)
-    return self.cost.eval(feed_dict = feed_dict), q_target_batch[-1]
+    return self.cost.eval(feed_dict = feed_dict), y_batch[-1]
 
   def UpdateTargetNetwork(self, sess):
     sess.run(self.t_w1.assign(self.w1))
@@ -430,12 +443,15 @@ class NeuralNetwork:
 GAMMA = 0.99
 INITIAL_EPSILON = 1.0
 FINAL_EPSILON = 0.1
-EXPLORE_STEPS = 500000
+EXPLORE_STEPS = 1000000
 OBSERVE_STEPS = 0 # 10000
 REPLAY_MEMORY = 100000 # 2000  # ~6G memory
 MINI_BATCH_SIZE = 32
 TRAIN_INTERVAL = 1
 UPDATE_TARGET_NETWORK_INTERVAL = 10000
+if DOUBLE_Q:
+  UPDATE_TARGET_NETWORK_INTERVAL = 30000
+  FINAL_EPSILON = 0.01
 
 CHECKPOINT_DIR = 'galaxian2c/'
 CHECKPOINT_FILE = 'model.ckpt'
@@ -470,7 +486,7 @@ def Run():
     steps = 0
     epsilon = INITIAL_EPSILON
     cost = 1e9
-    q_target_val = -1
+    y_val = -1
     while True:
       if random.random() <= epsilon:
         q_val = []
@@ -486,6 +502,7 @@ def Run():
       action_val = np.zeros([OUTPUT_DIM], dtype=np.int)
       action_val[frame1.action_id] = 1
 
+      # TODO: no need to store action_val in memory, it's in frame1 already.
       memory.append((frame, action_val, frame1))
       if len(memory) > REPLAY_MEMORY:
         memory.popleft()
@@ -493,7 +510,7 @@ def Run():
       if steps % TRAIN_INTERVAL == 0 and steps > OBSERVE_STEPS:
         mini_batch = random.sample(memory, min(len(memory), MINI_BATCH_SIZE))
         mini_batch.append(memory[-1])
-        cost, q_target_val = nn.Train(mini_batch)
+        cost, y_val = nn.Train(mini_batch)
 
       frame = frame1
       steps += 1
@@ -512,9 +529,9 @@ def Run():
         print("Saved to", save_path)
 
       print("Step %d epsilon: %.6f nn: %s q: %-33s action: %s reward: %2.0f "
-          "cost: %8.3f q_target: %8.3f" %
+          "cost: %8.3f y: %8.3f" %
           (steps, epsilon, FormatList(nn.CheckSum()), FormatList(q_val),
-            frame1.action, frame1.reward, cost, q_target_val))
+            frame1.action, frame1.reward, cost, y_val))
 
 
 if __name__ == '__main__':
