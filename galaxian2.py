@@ -400,6 +400,8 @@ def Run():
     sess.run(tf.global_variables_initializer())
 
     saver = tf.train.Saver()
+    if not os.path.exists(CHECKPOINT_DIR):
+      os.makedirs(CHECKPOINT_DIR)
     ckpt = tf.train.get_checkpoint_state(CHECKPOINT_DIR)
     if ckpt and ckpt.model_checkpoint_path:
       saver.restore(sess, ckpt.model_checkpoint_path)
