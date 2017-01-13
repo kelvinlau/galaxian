@@ -294,21 +294,6 @@ class NeuralNetwork:
       self.w3 = var([8, OUTPUT_DIM])
       self.b3 = var([OUTPUT_DIM])
       self.output = (tf.matmul(fc2, self.w3) + self.b3)
-
-      # Fully connected 1 (target network).
-      self.t_w1 = var([INPUT_FLAT_DIM, 16])
-      self.t_b1 = var([16])
-      t_fc1 = tf.nn.relu(tf.matmul(input_flat, self.t_w1) + self.t_b1)
-
-      # Fully connected 2 (target network).
-      self.t_w2 = var([16, 8])
-      self.t_b2 = var([8])
-      t_fc2 = tf.nn.relu(tf.matmul(t_fc1, self.t_w2) + self.t_b2)
-
-      # Output (target network).
-      self.t_w3 = var([8, OUTPUT_DIM])
-      self.t_b3 = var([OUTPUT_DIM])
-      self.t_output = (tf.matmul(t_fc2, self.t_w3) + self.t_b3)
     else:
       # Input image.
       self.input = tf.placeholder(tf.float32,
@@ -364,17 +349,12 @@ class NeuralNetwork:
         self.input: [f.datax for f in frames]
     })
 
-  def EvalTarget(self, frames):
-    return self.t_output.eval(feed_dict = {
-        self.input: [f.datax for f in frames]
-    })
-
-  def Train(self, mini_batch):
+  def Train(self, tnn, mini_batch):
     frame_batch = [d[0] for d in mini_batch]
     action_batch = [d[1] for d in mini_batch]
     frame1_batch = [d[2] for d in mini_batch]
 
-    t_q1_batch = self.EvalTarget(frame1_batch)
+    t_q1_batch = tnn.Eval(frame1_batch)
     y_batch = [0] * len(mini_batch)
     if not DOUBLE_Q:
       for i in xrange(len(mini_batch)):
@@ -400,13 +380,13 @@ class NeuralNetwork:
     self.optimizer.run(feed_dict = feed_dict)
     return self.cost.eval(feed_dict = feed_dict), y_batch[-1]
 
-  def UpdateTargetNetwork(self, sess):
-    sess.run(self.t_w1.assign(self.w1))
-    sess.run(self.t_b1.assign(self.b1))
-    sess.run(self.t_w2.assign(self.w2))
-    sess.run(self.t_b2.assign(self.b2))
-    sess.run(self.t_w3.assign(self.w3))
-    sess.run(self.t_b3.assign(self.b3))
+  def CopyFrom(self, sess, src):
+    sess.run(self.w1.assign(src.w1))
+    sess.run(self.b1.assign(src.b1))
+    sess.run(self.w2.assign(src.w2))
+    sess.run(self.b2.assign(src.b2))
+    sess.run(self.w3.assign(src.w3))
+    sess.run(self.b3.assign(src.b3))
 
   def Std(self):
     return (
@@ -428,16 +408,6 @@ class NeuralNetwork:
         np.sum(self.b3.eval()),
         )
 
-  def CheckSumTarget(self):
-    return (
-        np.sum(self.t_w1.eval()),
-        np.sum(self.t_b1.eval()),
-        np.sum(self.t_w2.eval()),
-        np.sum(self.t_b2.eval()),
-        np.sum(self.t_w3.eval()),
-        np.sum(self.t_b3.eval()),
-        )
-
 
 # Hyperparameters.
 GAMMA = 0.99
@@ -455,7 +425,7 @@ if DOUBLE_Q:
 
 CHECKPOINT_DIR = 'galaxian2c/'
 CHECKPOINT_FILE = 'model.ckpt'
-SAVE_INTERVAL = 1000 # 10000
+SAVE_INTERVAL = 10000
 
 
 def FormatList(l):
@@ -464,6 +434,7 @@ def FormatList(l):
 def Run():
   memory = deque()
   nn = NeuralNetwork()
+  tnn = NeuralNetwork()
   game = Game()
   frame = game.Step('_')
   frame.AddSnapshotsFromSelf()
@@ -481,7 +452,7 @@ def Run():
     else:
       print("No checkpoint found")
 
-    nn.UpdateTargetNetwork(sess)
+    tnn.CopyFrom(sess, nn)
 
     steps = 0
     epsilon = INITIAL_EPSILON
@@ -510,7 +481,7 @@ def Run():
       if steps % TRAIN_INTERVAL == 0 and steps > OBSERVE_STEPS:
         mini_batch = random.sample(memory, min(len(memory), MINI_BATCH_SIZE))
         mini_batch.append(memory[-1])
-        cost, y_val = nn.Train(mini_batch)
+        cost, y_val = nn.Train(tnn, mini_batch)
 
       frame = frame1
       steps += 1
@@ -519,9 +490,9 @@ def Run():
         epsilon -= (INITIAL_EPSILON - FINAL_EPSILON) / EXPLORE_STEPS
 
       if steps % UPDATE_TARGET_NETWORK_INTERVAL == 0:
-        print('Target network before:', nn.CheckSumTarget())
-        nn.UpdateTargetNetwork(sess)
-        print('Target network after:', nn.CheckSumTarget())
+        print('Target network before:', tnn.CheckSum())
+        tnn.CopyFrom(sess, nn)
+        print('Target network after:', tnn.CheckSum())
 
       if steps % SAVE_INTERVAL == 0:
         save_path = saver.save(sess, CHECKPOINT_DIR + CHECKPOINT_FILE,
