@@ -9,6 +9,7 @@ TODO: Scale down the image by 2x.
 TODO: Sigmoid vs ReLu.
 TODO: Random no-op actions at the start of episodes.
 TODO: Double Q Learning: https://arxiv.org/pdf/1509.06461v3.pdf
+TODO: Absolute coordinates as input.
 """
 
 from __future__ import print_function
@@ -71,6 +72,8 @@ class Frame:
 
     # Cap reward in [-1, 1].
     self.reward = max(-1, min(1, self.NextInt()))
+    #if self.reward == 0:
+    #  self.reward = 0.025  # For staying alive.
 
     self.action = self.NextToken()
     self.action_id = ACTION_ID[self.action]
