@@ -88,7 +88,8 @@ end
 ---- UI ----
 
 function ShowScore(score, max_score)
-  gui.drawtext(10, 10, "Max Score " .. max_score)
+  gui.drawtext(10, 10, "Score " .. score)
+  gui.drawtext(60, 10, "Max Score " .. max_score)
 end
 
 ---- Script starts here ----
@@ -102,6 +103,7 @@ savestate.save(INIT_STATE)
 human_play = false
 max_score = 0
 
+-- Dialog.
 dialogs = dialogs + 1;
 handles[dialogs] = iup.dialog{iup.vbox{
   iup.button{
@@ -142,6 +144,7 @@ handles[dialogs] = iup.dialog{iup.vbox{
   title=""}
 handles[dialogs]:show();
 
+-- Socket.
 local socket = require("socket")
 local server = assert(socket.bind("*", 62343))
 local ip, port = server:getsockname()
@@ -152,8 +155,11 @@ local client = server:accept()
 -- client:settimeout(1)
 -- client:close()
 
+SMALL_MODE = true
+
 local prev_score = 0
-local prev_y = 0
+local prev_inum = 0
+local prev_snum = 0
 local reward_sum = 0
 
 while true do
@@ -178,30 +184,44 @@ while true do
     end
     local g = GetGame()
     if IsDead() then
-      reward = -1000
+      reward = 0
+      terminal = true
+      break
+    elseif #g.incoming_enemies > 1 then
+      reward = 1
       terminal = true
       break
     end
   end
 
-  if terminal then
-    SkipFrames(60)  -- Show explosion.
-    savestate.load(INIT_STATE)
-    prev_score = 0
-    reward_sum = 0
-  end
-
   local g = GetGame()
+  local inum = #g.incoming_enemies
+  local snum = #g.still_enemies
   local action = ToAction(control)
   if not terminal then
-    reward = g.score - prev_score
+    if SMALL_MODE then
+      if inum < prev_inum and snum == prev_snum then
+        reward = 1
+      end
+    else
+      reward = g.score - prev_score
+    end
   end
   Respond(client, seq, g, action, reward, terminal)
 
-  if not terminal then
-    reward_sum = reward_sum + reward
-    max_score = math.max(max_score, reward_sum)
+  if terminal then
+    SkipFrames(60)  -- Show explosion.
+    savestate.load(INIT_STATE)
+    reward_sum = 0
+    prev_score = 0
+    prev_inum = 0
+    prev_snum = 0
+  else
+    prev_score = g.score
+    prev_inum = inum
+    prev_snum = snum
   end
 
-  prev_score = g.score
+  reward_sum = reward_sum + reward
+  max_score = math.max(max_score, reward_sum)
 end

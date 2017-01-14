@@ -26,11 +26,11 @@ import tensorflow as tf
 
 
 # Game input/output.
-NUM_STILL_ENEMIES = 10
-NUM_INCOMING_ENEMIES = 6
-NUM_BULLETS = 6
+NUM_STILL_ENEMIES = 0 # 10
+NUM_INCOMING_ENEMIES = 1 # 6
+NUM_BULLETS = 1 # 6
 
-RAW_IMAGE = True
+RAW_IMAGE = False
 if RAW_IMAGE:
   SCALE = 2
   WIDTH = 256/SCALE
@@ -53,19 +53,19 @@ INITIAL_EPSILON = 1.0
 FINAL_EPSILON = 0.1
 EXPLORE_STEPS = 1000000
 OBSERVE_STEPS = 0 # 10000
-REPLAY_MEMORY = 10000 # 2000  # ~6G memory
-MINI_BATCH_SIZE = 100
-TRAIN_INTERVAL = 12
-UPDATE_TARGET_NETWORK_INTERVAL = 200
+REPLAY_MEMORY = 100000 # 2000  # ~6G memory
+MINI_BATCH_SIZE = 32
+TRAIN_INTERVAL = 1
+UPDATE_TARGET_NETWORK_INTERVAL = 10000
 
 DOUBLE_Q = True
 if DOUBLE_Q:
   FINAL_EPSILON = 0.01
 
 # Checkpoint.
-CHECKPOINT_DIR = 'galaxian2g/'
+CHECKPOINT_DIR = 'galaxian2h/'
 CHECKPOINT_FILE = 'model.ckpt'
-SAVE_INTERVAL = 100
+SAVE_INTERVAL = 10000
 
 
 class Timer:
@@ -307,8 +307,8 @@ def ClippedError(x):
 
 class NeuralNetwork:
   def __init__(self, name, trainable=True):
-    var = lambda shape: tf.Variable(tf.random_normal(shape, stddev=.1),
-        trainable=trainable)
+    var = lambda shape: tf.Variable(
+        tf.truncated_normal(shape, stddev=.02), trainable=trainable)
 
     with tf.variable_scope(name):
       if not RAW_IMAGE:
