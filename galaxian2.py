@@ -28,7 +28,7 @@ import tensorflow as tf
 # Game input/output.
 NUM_STILL_ENEMIES = 0 # 10
 NUM_INCOMING_ENEMIES = 1 # 6
-NUM_BULLETS = 1 # 6
+NUM_BULLETS = 2 # 6
 
 RAW_IMAGE = False
 if RAW_IMAGE:
@@ -63,7 +63,7 @@ if DOUBLE_Q:
   FINAL_EPSILON = 0.01
 
 # Checkpoint.
-CHECKPOINT_DIR = 'galaxian2h/'
+CHECKPOINT_DIR = 'galaxian2i/'
 CHECKPOINT_FILE = 'model.ckpt'
 SAVE_INTERVAL = 10000
 

@@ -5,6 +5,12 @@
 require("auxlib");
 require("game")
 
+SHOW_AI_VISION = true
+SHOW_OBJECTS = true
+SHOW_STILL_ENEMIES = false
+
+SMALL_MODE = true
+
 ---- Responding ----
 
 function Respond(client, seq, g, action, reward, terminal)
@@ -92,6 +98,21 @@ function ShowScore(score, max_score)
   gui.drawtext(60, 10, "Max Score " .. max_score)
 end
 
+---- Small mode ----
+
+function Hit(rg)
+  if #rg[1].incoming_enemies >  0 then return false end
+  if #rg[2].incoming_enemies >  0 then return false end
+  if #rg[3].incoming_enemies == 0 then return false end
+  if #rg[4].incoming_enemies == 0 then return false end
+  for i = 1, 3 do
+    if #rg[i].still_enemies ~= #rg[4].still_enemies then
+      return false
+    end
+  end
+  return true
+end
+
 ---- Script starts here ----
 
 emu.print("Running Galaxian server")
@@ -126,6 +147,14 @@ handles[dialogs] = iup.dialog{iup.vbox{
       end
   },
   iup.button{
+    title="Show AI vision",
+    action=
+      function (self)
+        SHOW_AI_VISION = not SHOW_AI_VISION
+        SHOW_OBJECTS = not SHOW_OBJECTS
+      end
+  },
+  iup.button{
     title="Save",
     action=
       function (self)
@@ -155,11 +184,7 @@ local client = server:accept()
 -- client:settimeout(1)
 -- client:close()
 
-SMALL_MODE = true
-
-local prev_score = 0
-local prev_inum = 0
-local prev_snum = 0
+local recent_games = {}
 local reward_sum = 0
 
 while true do
@@ -172,6 +197,9 @@ while true do
 
   -- Advance 5 frames. If dead, start over.
   for i = 1, 5 do
+    local rg = {}
+    rg[0] = GetGame()
+    Show(rg)
     ShowScore(reward_sum, max_score)
     if human_play and i == 1 then
       joypad.set(1, {})
@@ -182,9 +210,9 @@ while true do
     if human_play and i == 1 then
       control = joypad.get(1)
     end
-    local g = GetGame()
+    g = GetGame()
     if IsDead() then
-      reward = 0
+      reward = -1
       terminal = true
       break
     elseif #g.incoming_enemies > 1 then
@@ -195,33 +223,35 @@ while true do
   end
 
   local g = GetGame()
-  local inum = #g.incoming_enemies
-  local snum = #g.still_enemies
+  if #recent_games == 0 then
+    for i = 1, 4 do
+      recent_games[i] = g
+    end
+  else
+    for i = 4, 2, -1 do
+      recent_games[i] = recent_games[i-1]
+    end
+    recent_games[1] = g
+  end
+  recent_games[0] = g
   local action = ToAction(control)
   if not terminal then
     if SMALL_MODE then
-      if inum < prev_inum and snum == prev_snum then
+      if Hit(recent_games) then
         reward = 1
       end
     else
-      reward = g.score - prev_score
+      reward = g.score - recent_games[2].score
     end
   end
   Respond(client, seq, g, action, reward, terminal)
 
-  if terminal then
-    SkipFrames(60)  -- Show explosion.
-    savestate.load(INIT_STATE)
-    reward_sum = 0
-    prev_score = 0
-    prev_inum = 0
-    prev_snum = 0
-  else
-    prev_score = g.score
-    prev_inum = inum
-    prev_snum = snum
-  end
-
   reward_sum = reward_sum + reward
   max_score = math.max(max_score, reward_sum)
+
+  if terminal then
+    savestate.load(INIT_STATE)
+    reward_sum = 0
+    recent_games = {}
+  end
 end
