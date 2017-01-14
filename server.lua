@@ -7,7 +7,7 @@ require("game")
 
 ---- Responding ----
 
-function Respond(client, seq, g, action, reward)
+function Respond(client, seq, g, action, reward, terminal)
   --emu.print("Respond", seq)
   local line = ""
   function Append(x)
@@ -16,6 +16,11 @@ function Respond(client, seq, g, action, reward)
 
   Append(seq)
   Append(reward)
+  if terminal then
+    Append(1)
+  else
+    Append(0)
+  end
   Append(action)
   Append(g.galaxian.x)
   Append(g.galaxian.y)
@@ -82,8 +87,9 @@ end
 
 ---- UI ----
 
-function ShowScore(max_score)
-  gui.drawtext(10, 10, "Max Score " .. max_score)
+function ShowScore(score, max_score)
+  gui.drawtext(10, 10, "Score " .. score)
+  gui.drawtext(60, 10, "Max Score " .. max_score)
 end
 
 ---- Script starts here ----
@@ -95,7 +101,6 @@ INIT_STATE = savestate.create(9)
 savestate.save(INIT_STATE)
 
 human_play = false
-prev_score = 0
 max_score = 0
 
 dialogs = dialogs + 1;
@@ -148,37 +153,74 @@ local client = server:accept()
 -- client:settimeout(1)
 -- client:close()
 
+local prev_score = 0
+local prev_inum = 0
+local prev_snum = 0
+local prev_y = 0
+local reward_sum = 0
+
 while true do
   local control = nil
   local seq = nil
   control, seq = ReadControl(client)
 
-  if human_play then
-    control = {}
-  end
+  local reward = 0
+  local terminal = false
 
-  -- Advance 10 frames. If dead, start over.
-  for i = 1, 10 do
-    ShowScore(max_score)
-    joypad.set(1, control)
+  -- Advance 5 frames. If dead, start over.
+  for i = 1, 5 do
+    ShowScore(reward_sum, max_score)
+    if human_play and i == 1 then
+      joypad.set(1, {})
+    else
+      joypad.set(1, control)
+    end
     emu.frameadvance()
+    if human_play and i == 1 then
+      control = joypad.get(1)
+    end
+    local g = GetGame()
     if IsDead() then
-      SkipFrames(60)
-      savestate.load(INIT_STATE)
-      prev_score = 1000  -- Next respond with have reward = -1000.
+      reward = -1000
+      terminal = true
+      break
+    elseif #g.incoming_enemies > 1 then
+      reward = 1
+      terminal = true
       break
     end
   end
 
-  if control == {} then
-    control = joypad.get(1, control)
+  if terminal then
+    SkipFrames(60)  -- Show explosion.
+    savestate.load(INIT_STATE)
+    prev_score = 0
+    prev_inum = 0
+    reward_sum = 0
   end
 
   local g = GetGame()
+  local inum = #g.incoming_enemies
+  local snum = #g.still_enemies
   local action = ToAction(control)
-  local reward = g.score - prev_score
-  Respond(client, seq, g, action, reward)
+  if not terminal then
+    if inum < prev_inum and snum == prev_snum then
+      reward = 1
+    end
+  end
+  Respond(client, seq, g, action, reward, terminal)
+
+  if not terminal then
+    reward_sum = reward_sum + reward
+    max_score = math.max(max_score, reward_sum)
+  end
 
   prev_score = g.score
-  max_score = math.max(max_score, g.score)
+  prev_inum = inum
+  prev_snum = snum
+  if inum > 0 then
+    prev_y = g.incoming_enemies[1].y
+  else
+    prev_y = 0
+  end
 end
