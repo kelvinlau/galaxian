@@ -1,6 +1,7 @@
 from __future__ import print_function
 from collections import deque
 import os
+import sys
 import random
 import time
 import pygame
@@ -35,33 +36,34 @@ if DOUBLE_Q:
   FINAL_EPSILON = 0.01
 
 if PLAY:
-  INITIAL_EPSILON = 0.01
+  INITIAL_EPSILON = 0
 
 # Checkpoint.
-CHECKPOINT_DIR = 'simple2/'
+CHECKPOINT_DIR = 'simple3/'
 CHECKPOINT_FILE = 'model.ckpt'
 SAVE_INTERVAL = 1000
 
 
 class Frame:
-  def __init__(self, action, reward, terminal, y, data):
+  def __init__(self, action, reward, terminal, x, data):
     self.action = action
     self.action_id = ACTION_ID[self.action]
     self.reward = reward
     self.terminal = terminal
     row = np.zeros((1, SIDE))
-    row[0][y] = 1
-    self.data = np.reshape(np.append(row, data, axis=0), INPUT_DIM)
+    row[0][x] = 1
+    self.data = np.reshape(np.append(data, row, axis=0), INPUT_DIM)
 
 
 class Game:
   def __init__(self):
-    self.y = random.randint(0, SIDE-1)
+    self.x = random.randint(0, SIDE-1)
     self.data = np.zeros((SIDE, SIDE))
+    self.score = 0
 
     pygame.init()
     self.clock = pygame.time.Clock()
-    self.screen = pygame.display.set_mode(((SIDE+1)*SIZE, SIDE*SIZE))
+    self.screen = pygame.display.set_mode((SIDE*SIZE, (SIDE+1)*SIZE))
     pygame.display.set_caption('Simple Game')
 
   def Step(self, action):
@@ -72,32 +74,35 @@ class Game:
         sys.exit()
 
     if PLAY:
-      time.sleep(0.1)
+      time.sleep(0.2)
 
-    reward = self.data[0][self.y]
+    reward = self.data[-1][self.x]
     row = np.array([random.randint(-1, 1) for i in xrange(SIDE)])
-    self.data = np.append(self.data[1:], [row], axis=0)
-    if action == 'L' and self.y - 1 >= 0:
-      self.y -= 1
-    if action == 'R' and self.y + 1 < SIDE:
-      self.y += 1
+    self.data = np.append([row], self.data[:-1], axis=0)
+    if action == 'L' and self.x - 1 >= 0:
+      self.x -= 1
+    if action == 'R' and self.x + 1 < SIDE:
+      self.x += 1
     terminal = False
+    self.score += reward
 
     BLACK = (0, 0, 0)
     WHITE = (127, 127, 127)
     GREEN = (0, 127, 0)
     RED = (127, 0, 0)
     self.screen.fill(BLACK)
-    pygame.draw.rect(self.screen, WHITE, pygame.Rect(0, self.y*SIZE, SIZE, SIZE))
-    for x in xrange(SIDE):
-      for y in xrange(SIDE):
-        if self.data[x][y] != 0:
-          pygame.draw.rect(self.screen, GREEN if self.data[x][y] > 0 else RED,
-              pygame.Rect((x+1)*SIZE, y*SIZE, SIZE, SIZE))
+    pygame.draw.rect(self.screen, WHITE, pygame.Rect(self.x*SIZE, SIDE*SIZE, SIZE, SIZE))
+    for y in xrange(SIDE):
+      for x in xrange(SIDE):
+        if self.data[y][x] != 0:
+          pygame.draw.rect(self.screen, GREEN if self.data[y][x] > 0 else RED,
+              pygame.Rect(x*SIZE, y*SIZE, SIZE, SIZE))
+    score = pygame.font.Font(None, 15).render("%d" % self.score, 1, (255,255,0))
+    self.screen.blit(score, (10, 10))
     pygame.display.update()
     self.clock.tick(60)
 
-    return Frame(action, reward, terminal, self.y, self.data.copy())
+    return Frame(action, reward, terminal, self.x, self.data)
 
 
 def TestGame():
