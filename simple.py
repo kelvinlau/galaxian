@@ -10,7 +10,10 @@ Trained with sparse blocks for 100,000 steps (30 min), reached q values ~9
 Play with dense blocks: 2000 steps -> 590 score
 Play with sparse blocks: 2000 steps -> 370 score
 
-TODO: use coordinates as input
+simple5: use coordinates as input
+Trained with sparse blocks for 210,000 steps (60 min), reached q values ~8
+Play with sparse blocks: 2000 steps -> 170 score
+
 TODO: conv2d 3,2 -> 3,1
 """
 
@@ -29,7 +32,11 @@ import tensorflow as tf
 PLAY = False
 SPARSE = True
 SIDE = 8
-INPUT_DIM = (1+SIDE) * SIDE
+RAW_IMAGE = True
+if RAW_IMAGE:
+  INPUT_DIM = (SIDE+1)*SIDE
+else:
+  INPUT_DIM = SIDE*4+1
 SIZE = 50
 ACTION_NAMES = ['_', 'L', 'R']
 ACTION_ID = {'_': 0, 'L': 1, 'R': 2}
@@ -60,14 +67,41 @@ SAVE_INTERVAL = 10000
 
 
 class Frame:
-  def __init__(self, action, reward, terminal, x, data):
+  def __init__(self, action, reward, terminal, cx, blocks):
     self.action = action
     self.action_id = ACTION_ID[self.action]
     self.reward = reward
     self.terminal = terminal
-    row = np.zeros((1, SIDE))
-    row[0][x] = 1
-    self.data = np.reshape(np.append(data, row, axis=0), INPUT_DIM)
+    if RAW_IMAGE:
+      row = np.zeros((1, SIDE))
+      row[0][cx] = 1
+      self.data = np.reshape(np.append(blocks, row, axis=0), INPUT_DIM)
+    else:
+      data = [cx/8.0]
+      pnum = 0
+      for y in xrange(SIDE-1,-1,-1):
+        for x in xrange(SIDE):
+          if blocks[y][x] > 0:
+            data.append(x/8.0)
+            data.append(y/8.0)
+            pnum += 1
+      assert pnum <= SIDE
+      for i in xrange(SIDE-pnum):
+        data.append(-1)
+        data.append(-1)
+      nnum = 0
+      for y in xrange(SIDE-1,-1,-1):
+        for x in xrange(SIDE):
+          if blocks[y][x] < 0:
+            data.append(x/8.0)
+            data.append(y/8.0)
+            nnum += 1
+      assert nnum <= SIDE
+      for i in xrange(SIDE-nnum):
+        data.append(-1)
+        data.append(-1)
+      assert len(data) == INPUT_DIM
+      self.data = np.array(data)
 
 
 class Game:
