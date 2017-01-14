@@ -14,7 +14,8 @@ simple5: use coordinates as input
 Trained with sparse blocks for 210,000 steps (60 min), reached q values ~8
 Play with sparse blocks: 2000 steps -> 170 score
 
-TODO: conv2d 3,2 -> 3,1
+simple6: conv2d 3,2 -> 3,1
+Failed. Can't reach positive q values after 128,000 steps.
 """
 
 from __future__ import print_function
@@ -29,10 +30,11 @@ import numpy as np
 import tensorflow as tf
 
 
-PLAY = False
+PLAY = True
 SPARSE = True
 SIDE = 8
 RAW_IMAGE = True
+CONV = False
 if RAW_IMAGE:
   INPUT_DIM = (SIDE+1)*SIDE
 else:
@@ -73,9 +75,9 @@ class Frame:
     self.reward = reward
     self.terminal = terminal
     if RAW_IMAGE:
-      row = np.zeros((1, SIDE))
-      row[0][cx] = 1
-      self.data = np.reshape(np.append(blocks, row, axis=0), INPUT_DIM)
+      row = np.zeros(SIDE)
+      row[cx] = 1
+      self.data = np.reshape(np.append(blocks, [row], axis=0), [INPUT_DIM])
     else:
       data = [cx/8.0]
       pnum = 0
@@ -182,23 +184,44 @@ class NeuralNetwork:
       self.input = tf.placeholder(tf.float32, [None, INPUT_DIM])
       print('input:', self.input.get_shape())
 
-      # Fully connected 1.
-      self.w1 = var([INPUT_DIM, 16])
-      self.b1 = var([16])
-      fc1 = tf.nn.relu(tf.matmul(self.input, self.w1) + self.b1)
+      if RAW_IMAGE and CONV:
+        inputx = tf.reshape(self.input, [-1, SIDE+1, SIDE, 1])
 
-      # Fully connected 2.
-      self.w2 = var([16, 8])
-      self.b2 = var([8])
-      fc2 = tf.nn.relu(tf.matmul(fc1, self.w2) + self.b2)
+        # conv 1
+        conv1 = tf.nn.relu(tf.nn.conv2d(
+          inputx, var([3, 3, 1, 4]), strides=[1, 2, 2, 1], padding="VALID")
+          + var([4]))
+        print('conv1:', conv1.get_shape())
+
+        # conv 2
+        conv2 = tf.nn.relu(tf.nn.conv2d(
+          conv1, var([3, 3, 4, 8]), strides=[1, 1, 1, 1], padding="VALID")
+          + var([8]))
+        print('conv2:', conv2.get_shape())
+
+        N2 = reduce(lambda x, y: x * y, conv2.get_shape().as_list()[1:])
+        conv2_flat = tf.reshape(conv2, [-1, N2])
+        print('conv2_flat:', conv2_flat.get_shape())
+
+        layer = conv2_flat
+      else:
+        N2 = INPUT_DIM
+        layer = self.input
+
+      # Fully connected 3.
+      N3 = 16
+      fc3 = tf.nn.relu(tf.matmul(layer, var([N2, N3])) + var([N3]))
+
+      # Fully connected 4.
+      N4 = 8
+      fc4 = tf.nn.relu(tf.matmul(fc3, var([N3, N4])) + var([N4]))
 
       # Output.
-      self.w3 = var([8, OUTPUT_DIM])
-      self.b3 = var([OUTPUT_DIM])
-      self.output = (tf.matmul(fc2, self.w3) + self.b3)
+      self.output = (tf.matmul(fc4, var([N4, OUTPUT_DIM])) + var([OUTPUT_DIM]))
 
     self.theta = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope=name)
-    assert len(self.theta) == 6, len(self.theta)
+
+    assert len(self.theta) == 10 if CONV else 6, len(self.theta)
 
     if trainable:
       # Training.
