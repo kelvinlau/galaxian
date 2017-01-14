@@ -9,11 +9,11 @@ import numpy as np
 import tensorflow as tf
 
 
-PLAY = True
+PLAY = False
 
-SIDE = 4
+SIDE = 8
 INPUT_DIM = (1+SIDE) * SIDE
-SIZE = 100
+SIZE = 50
 
 ACTION_NAMES = ['_', 'L', 'R']
 ACTION_ID = {'_': 0, 'L': 1, 'R': 2}
@@ -38,7 +38,7 @@ if PLAY:
   INITIAL_EPSILON = 0.01
 
 # Checkpoint.
-CHECKPOINT_DIR = 'simple/'
+CHECKPOINT_DIR = 'simple2/'
 CHECKPOINT_FILE = 'model.ckpt'
 SAVE_INTERVAL = 1000
 
