@@ -5,8 +5,8 @@
 require("auxlib");
 require("game")
 
-SHOW_AI_VISION = true
-SHOW_OBJECTS = true
+SHOW_AI_VISION = false
+SHOW_OBJECTS = false
 SHOW_STILL_ENEMIES = false
 
 SMALL_MODE = true

@@ -443,6 +443,7 @@ def FormatList(l):
 
 def Run():
   memory = deque()
+  memoryx = deque()
   nn = NeuralNetwork('nn')
   tnn = NeuralNetwork('tnn', trainable=False)
   game = Game()
@@ -487,9 +488,14 @@ def Run():
       memory.append((frame, action_val, frame1))
       if len(memory) > REPLAY_MEMORY:
         memory.popleft()
+      if frame1.reward != 0:
+        memoryx.append((frame, action_val, frame1))
+        if len(memoryx) > REPLAY_MEMORY:
+          memoryx.popleft()
 
       if steps % TRAIN_INTERVAL == 0 and steps > OBSERVE_STEPS:
         mini_batch = random.sample(memory, min(len(memory), MINI_BATCH_SIZE))
+        mini_batch += random.sample(memoryx, min(len(memoryx), MINI_BATCH_SIZE))
         mini_batch.append(memory[-1])
         cost, y_val = nn.Train(tnn, mini_batch)
 
