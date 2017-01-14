@@ -5,6 +5,11 @@ Trained with dense blocks for 100,000 steps (30 min), reached q values ~35
 Play with dense blocks: 2000 steps -> 1260 score
 Play with sparse blocks: 2000 steps -> 390 score
 
+simple4:
+Trained with sparse blocks for 100,000 steps (30 min), reached q values ~9
+Play with dense blocks: 2000 steps -> 590 score
+Play with sparse blocks: 2000 steps -> 370 score
+
 TODO: use coordinates as input
 TODO: conv2d 3,2 -> 3,1
 """
@@ -21,7 +26,7 @@ import numpy as np
 import tensorflow as tf
 
 
-PLAY = True
+PLAY = False
 SPARSE = True
 SIDE = 8
 INPUT_DIM = (1+SIDE) * SIDE
@@ -49,9 +54,9 @@ if PLAY:
   INITIAL_EPSILON = 0
 
 # Checkpoint.
-CHECKPOINT_DIR = 'simple3/'
+CHECKPOINT_DIR = 'simple4/'
 CHECKPOINT_FILE = 'model.ckpt'
-SAVE_INTERVAL = 1000
+SAVE_INTERVAL = 10000
 
 
 class Frame:
