@@ -54,9 +54,9 @@ FINAL_EPSILON = 0.1
 EXPLORE_STEPS = 1000000
 OBSERVE_STEPS = 0 # 10000
 REPLAY_MEMORY = 10000 # 2000  # ~6G memory
-MINI_BATCH_SIZE = 32
-TRAIN_INTERVAL = 1
-UPDATE_TARGET_NETWORK_INTERVAL = 100
+MINI_BATCH_SIZE = 100
+TRAIN_INTERVAL = 12
+UPDATE_TARGET_NETWORK_INTERVAL = 200
 
 DOUBLE_Q = True
 if DOUBLE_Q:
@@ -388,8 +388,8 @@ class NeuralNetwork:
       q_action = tf.reduce_sum(tf.mul(self.output, self.action),
           reduction_indices = 1)
       self.cost = tf.reduce_mean(ClippedError(q_action - self.y))
-      self.optimizer = tf.train.AdamOptimizer(
-          learning_rate=1e-2, epsilon=1e-8).minimize(self.cost)
+      self.optimizer = tf.train.RMSPropOptimizer(
+          learning_rate=0.00025, momentum=.95, epsilon=1e-2).minimize(self.cost)
 
   def Vars(self):
     return self.theta
