@@ -9,6 +9,7 @@ TODO: Scale down the image by 2x.
 TODO: Sigmoid vs ReLu.
 TODO: Random no-op actions at the start of episodes.
 TODO: Double Q Learning: https://arxiv.org/pdf/1509.06461v3.pdf
+TODO: Absolute coordinates as input.
 """
 
 from __future__ import print_function
@@ -19,26 +20,52 @@ import random
 import time
 import math
 import socket
+import cv2
 import numpy as np
 import tensorflow as tf
 
 
+# Game input/output.
+NUM_STILL_ENEMIES = 0 # 10
+NUM_INCOMING_ENEMIES = 1 # 6
+NUM_BULLETS = 2 # 6
+
 RAW_IMAGE = False
 if RAW_IMAGE:
-  WIDTH = 256
-  HEIGHT = 240
+  SCALE = 2
+  WIDTH = 256/SCALE
+  HEIGHT = 240/SCALE
+  SIDE = 84
 else:
   # galaxian.x, missile.y, still enemy xs, 6 incoming enemies and 6 bullets.
   # TODO: Try adding if the galaxian is aimming at a gap.
-  INPUT_DIM = 1 + 1 + 10 + 2 * (6 + 6)
-  # INPUT_DIM = 1 + 1 + 2 * (1 + 2)
+  INPUT_DIM = 1 + 1 + NUM_STILL_ENEMIES + 2 * (NUM_INCOMING_ENEMIES + NUM_BULLETS)
 
-NUM_SNAPSHOTS = 5
+NUM_SNAPSHOTS = 4
+
 ACTION_NAMES = ['_', 'L', 'R', 'A']
 ACTION_ID = {'_': 0, 'L': 1, 'R': 2, 'A': 3}
 OUTPUT_DIM = len(ACTION_NAMES)  # TODO(kelvinlau): 6?
 
-DOUBLE_Q = False
+# Hyperparameters.
+GAMMA = 0.99
+INITIAL_EPSILON = 1.0
+FINAL_EPSILON = 0.1
+EXPLORE_STEPS = 1000000
+OBSERVE_STEPS = 0 # 10000
+REPLAY_MEMORY = 100000 # 2000  # ~6G memory
+MINI_BATCH_SIZE = 32
+TRAIN_INTERVAL = 1
+UPDATE_TARGET_NETWORK_INTERVAL = 10000
+
+DOUBLE_Q = True
+if DOUBLE_Q:
+  FINAL_EPSILON = 0.01
+
+# Checkpoint.
+CHECKPOINT_DIR = 'galaxian2i/'
+CHECKPOINT_FILE = 'model.ckpt'
+SAVE_INTERVAL = 10000
 
 
 class Timer:
@@ -71,6 +98,10 @@ class Frame:
 
     # Cap reward in [-1, 1].
     self.reward = max(-1, min(1, self.NextInt()))
+    #if self.reward == 0:
+    #  self.reward = 0.025  # For staying alive.
+
+    self.terminal = self.NextInt()
 
     self.action = self.NextToken()
     self.action_id = ACTION_ID[self.action]
@@ -84,19 +115,22 @@ class Frame:
     masks = []
     for i in xrange(10):
       masks.append(self.NextInt())
+    masks = masks[:NUM_STILL_ENEMIES]
 
     incoming_enemies = []
     for i in xrange(self.NextInt()):
       incoming_enemies.append(self.NextPoint())
+    incoming_enemies = incoming_enemies[:NUM_INCOMING_ENEMIES]
 
     bullets = []
     for i in xrange(self.NextInt()):
       bullets.append(self.NextPoint())
+    bullets = bullets[:NUM_BULLETS]
 
     if not RAW_IMAGE:
       data = []
 
-      data.append((galaxian.x - 128) / 128.0)
+      data.append(galaxian.x / 256.0)
 
       if missile.y < 200:
         data.append(missile.y / 200.0)
@@ -104,44 +138,40 @@ class Frame:
         data.append(0)
 
       # still_enemies
-      still_enemy_xs = []
       for mask in masks:
-        x = (dx + 48 + 8 + 16 * i) % 256;
         if mask:
-          still_enemy_xs.append(Frame.InvertX(x - galaxian.x))
-      still_enemy_xs.sort(key = abs, reverse = True)
-      for x in still_enemy_xs:
-        data.append(x)
-      for i in xrange(10 - len(still_enemy_xs)):
-        data.append(0)
+          x = (dx + 48 + 8 + 16 * i) % 256;
+          data.append(x / 256.0)
+        else:
+          data.append(-1)
 
       for e in incoming_enemies:
-        dx = Frame.InvertX(e.x - galaxian.x)
+        dx = e.x / 256.0
         dy = e.y / 200.0
         data.append(dx)
         data.append(dy)
-      for i in xrange(6 - len(incoming_enemies)):
-        data.append(0)
-        data.append(0)
+      for i in xrange(NUM_INCOMING_ENEMIES - len(incoming_enemies)):
+        data.append(-1)
+        data.append(-1)
 
       for e in bullets:
-        dx = Frame.InvertX(e.x - galaxian.x)
+        dx = e.x / 256.0
         dy = e.y / 200.0
         data.append(dx)
         data.append(dy)
-      for i in xrange(6 - len(bullets)):
-        data.append(0)
-        data.append(0)
+      for i in xrange(NUM_BULLETS - len(bullets)):
+        data.append(-1)
+        data.append(-1)
 
-      assert len(data) == INPUT_DIM
+      assert len(data) == INPUT_DIM, '%d vs %d' % (len(data), INPUT_DIM)
       self.data = np.array(data)
     else:
       self.data = np.zeros((WIDTH, HEIGHT))
 
-      self.AddRect(galaxian, 16, 16)
+      self.AddRect(galaxian, 16, 16, .5)
 
       if missile.y < 200:
-        self.AddRect(missile, 4, 12)
+        self.AddRect(missile, 4, 8, .5)
 
       still_enemies = []
       for mask in masks:
@@ -154,13 +184,15 @@ class Frame:
           y -= 12
       assert len(still_enemies) <= 46
       for e in still_enemies:
-        self.AddRect(e, 10, 12)
+        self.AddRect(e, 8, 12)
 
       for e in incoming_enemies:
-        self.AddRect(e, 10, 12)
+        self.AddRect(e, 8, 12)
 
       for b in bullets:
         self.AddRect(b, 4, 12)
+
+      self.data = cv2.resize(self.data, (SIDE, SIDE))
 
   @staticmethod
   def InvertX(dx):
@@ -180,11 +212,11 @@ class Frame:
             np.reshape(self.data, (INPUT_DIM, 1)),
             axis = 1)
     else:
-      self.datax = np.reshape(self.data, (WIDTH, HEIGHT, 1))
+      self.datax = np.reshape(self.data, (SIDE, SIDE, 1))
       for i in xrange(NUM_SNAPSHOTS-1):
         self.datax = np.append(
             self.datax,
-            np.reshape(self.data, (WIDTH, HEIGHT, 1)),
+            np.reshape(self.data, (SIDE, SIDE, 1)),
             axis = 2)
 
   def AddSnapshotsFromPrev(self, prev_frame):
@@ -195,7 +227,7 @@ class Frame:
           axis = 1)
     else:
       self.datax = np.append(
-          np.reshape(self.data, (WIDTH, HEIGHT, 1)),
+          np.reshape(self.data, (SIDE, SIDE, 1)),
           prev_frame.datax[:, :, :NUM_SNAPSHOTS-1],
           axis = 2)
 
@@ -209,16 +241,18 @@ class Frame:
   def NextPoint(self):
     return Point(self.NextInt(), self.NextInt())
 
-  def AddRect(self, c, w, h):
-    w /= 2
-    h /= 2
+  def AddRect(self, c, w, h, v=1.):
+    c.x /= SCALE
+    c.y /= SCALE
+    w /= 2 * SCALE
+    h /= 2 * SCALE
     x1 = max(c.x - w, 0)
     x2 = min(c.x + w, WIDTH)
     y1 = max(c.y - h, 0)
     y2 = min(c.y + h, HEIGHT)
     if x1 >= x2 or y1 >= y2:
       return
-    self.data[x1:x2, y1:y2] += np.full((x2-x1, y2-y1,), 1.)
+    self.data[x1:x2, y1:y2] += np.full((x2-x1, y2-y1,), v)
 
   def CheckSum(self):
     return np.sum(self.datax)
@@ -266,120 +300,116 @@ def TestGame():
       game.Step('_')
 
 
+def ClippedError(x):
+  # Huber loss
+  return tf.select(tf.abs(x) < 1.0, 0.5 * tf.square(x), tf.abs(x) - 0.5)
+
+
 class NeuralNetwork:
-  def __init__(self):
-    var = lambda shape: tf.Variable(tf.random_normal(shape))
+  def __init__(self, name, trainable=True):
+    var = lambda shape: tf.Variable(
+        tf.truncated_normal(shape, stddev=.02), trainable=trainable)
 
-    if not RAW_IMAGE:
-      # Input.
-      self.input = tf.placeholder(tf.float32,
-          [None, INPUT_DIM, NUM_SNAPSHOTS])
-      print('input:', self.input.get_shape())
+    with tf.variable_scope(name):
+      if not RAW_IMAGE:
+        # Input.
+        self.input = tf.placeholder(tf.float32,
+            [None, INPUT_DIM, NUM_SNAPSHOTS])
+        print('input:', self.input.get_shape())
 
-      # Flatten input.
-      INPUT_FLAT_DIM = INPUT_DIM * NUM_SNAPSHOTS
-      input_flat = tf.reshape(self.input, [-1, INPUT_FLAT_DIM])
+        # Flatten input.
+        INPUT_FLAT_DIM = INPUT_DIM * NUM_SNAPSHOTS
+        input_flat = tf.reshape(self.input, [-1, INPUT_FLAT_DIM])
 
-      # Fully connected 1.
-      self.w1 = var([INPUT_FLAT_DIM, 16])
-      self.b1 = var([16])
-      fc1 = tf.nn.relu(tf.matmul(input_flat, self.w1) + self.b1)
+        # Fully connected 1.
+        self.w1 = var([INPUT_FLAT_DIM, 16])
+        self.b1 = var([16])
+        fc1 = tf.nn.relu(tf.matmul(input_flat, self.w1) + self.b1)
 
-      # Fully connected 2.
-      self.w2 = var([16, 8])
-      self.b2 = var([8])
-      fc2 = tf.nn.relu(tf.matmul(fc1, self.w2) + self.b2)
+        # Fully connected 2.
+        self.w2 = var([16, 8])
+        self.b2 = var([8])
+        fc2 = tf.nn.relu(tf.matmul(fc1, self.w2) + self.b2)
 
-      # Output.
-      self.w3 = var([8, OUTPUT_DIM])
-      self.b3 = var([OUTPUT_DIM])
-      self.output = (tf.matmul(fc2, self.w3) + self.b3)
+        # Output.
+        self.w3 = var([8, OUTPUT_DIM])
+        self.b3 = var([OUTPUT_DIM])
+        self.output = (tf.matmul(fc2, self.w3) + self.b3)
+      else:
+        # Input image.
+        self.input = tf.placeholder(tf.float32,
+            [None, SIDE, SIDE, NUM_SNAPSHOTS])
+        print('input:', self.input.get_shape())
 
-      # Fully connected 1 (target network).
-      self.t_w1 = var([INPUT_FLAT_DIM, 16])
-      self.t_b1 = var([16])
-      t_fc1 = tf.nn.relu(tf.matmul(input_flat, self.t_w1) + self.t_b1)
+        # Conv 1.
+        self.w1 = var([8, 8, NUM_SNAPSHOTS, 32])
+        self.b1 = var([32])
+        conv1 = tf.nn.relu(tf.nn.conv2d(
+          self.input, self.w1, strides = [1, 4, 4, 1], padding = "VALID")
+          + self.b1)
+        print('conv1:', conv1.get_shape())
 
-      # Fully connected 2 (target network).
-      self.t_w2 = var([16, 8])
-      self.t_b2 = var([8])
-      t_fc2 = tf.nn.relu(tf.matmul(t_fc1, self.t_w2) + self.t_b2)
+        # Conv 2.
+        self.w2 = var([4, 4, 32, 64])
+        self.b2 = var([64])
+        conv2 = tf.nn.relu(tf.nn.conv2d(
+          conv1, self.w2, strides = [1, 2, 2, 1], padding = "VALID")
+          + self.b2)
+        print('conv2:', conv2.get_shape())
 
-      # Output (target network).
-      self.t_w3 = var([8, OUTPUT_DIM])
-      self.t_b3 = var([OUTPUT_DIM])
-      self.t_output = (tf.matmul(t_fc2, self.t_w3) + self.t_b3)
-    else:
-      # Input image.
-      self.input = tf.placeholder(tf.float32,
-          [None, WIDTH, HEIGHT, NUM_SNAPSHOTS])
-      print('input:', self.input.get_shape())
+        # Conv 3.
+        self.w3 = var([3, 3, 64, 64])
+        self.b3 = var([64])
+        conv3 = tf.nn.relu(tf.nn.conv2d(
+          conv2, self.w3, strides = [1, 1, 1, 1], padding = "VALID")
+          + self.b3)
+        print('conv3:', conv3.get_shape())
 
-      # Conv 1: 16x12 is the enemy size.
-      conv1 = tf.nn.relu(tf.nn.conv2d(
-        self.input, var([32, 24, 5, 64]), strides = [1, 16, 12, 1],
-        padding = "VALID")
-        + var([64]))
-      print('conv1:', conv1.get_shape())
+        # Flatten conv 3.
+        conv3_flat = tf.reshape(conv3, [-1, 3136])
 
-      # Conv 2.
-      conv2 = tf.nn.relu(tf.nn.conv2d(
-        conv1, var([4, 4, 64, 128]), strides = [1, 2, 2, 1],
-        padding = "VALID")
-        + var([128]))
-      print('conv2:', conv2.get_shape())
+        # Fully connected 4.
+        self.w4 = var([3136, 512])
+        self.b4 = var([512])
+        fc4 = tf.nn.relu(tf.matmul(conv3_flat, self.w4) + self.b4)
 
-      # Conv 3.
-      conv3 = tf.nn.relu(tf.nn.conv2d(
-        conv2, var([2, 2, 128, 128]), strides = [1, 1, 1, 1],
-        padding = "VALID")
-        + var([128]))
-      print('conv3:', conv3.get_shape())
+        # Output.
+        self.w5 = var([512, OUTPUT_DIM])
+        self.b5 = var([OUTPUT_DIM])
+        self.output = (tf.matmul(fc4, self.w5) + self.b5)
 
-      # Flatten conv 3.
-      conv3_flat = tf.reshape(conv3, [-1, 4480])
+    self.theta = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope=name)
+    assert len(self.theta) == (10 if RAW_IMAGE else 6), len(self.theta)
 
-      # Fully connected 4.
-      fc4 = tf.nn.relu(tf.matmul(conv3_flat, var([4480, 784])) + var([784]))
-
-      # Output.
-      self.output = (tf.matmul(fc4, var([784, OUTPUT_DIM])) +
-          var([OUTPUT_DIM]))
-
-    # Training.
-    # Error clipping to [-1, 1]?
-    self.action = tf.placeholder(tf.float32, [None, OUTPUT_DIM])
-    self.y = tf.placeholder(tf.float32, [None])
-    q_action = tf.reduce_sum(tf.mul(self.output, self.action),
-        reduction_indices = 1)
-    self.cost = tf.reduce_mean(tf.square(q_action - self.y))
-    self.optimizer = tf.train.AdamOptimizer(
-        learning_rate=1e-2, epsilon=1e-3).minimize(self.cost)
+    if trainable:
+      # Training.
+      self.action = tf.placeholder(tf.float32, [None, OUTPUT_DIM])
+      self.y = tf.placeholder(tf.float32, [None])
+      q_action = tf.reduce_sum(tf.mul(self.output, self.action),
+          reduction_indices = 1)
+      self.cost = tf.reduce_mean(ClippedError(q_action - self.y))
+      self.optimizer = tf.train.RMSPropOptimizer(
+          learning_rate=0.00025, momentum=.95, epsilon=1e-2).minimize(self.cost)
 
   def Vars(self):
-    return [self.w1, self.b1, self.w2, self.b2, self.w3, self.b3]
+    return self.theta
 
   def Eval(self, frames):
     return self.output.eval(feed_dict = {
         self.input: [f.datax for f in frames]
     })
 
-  def EvalTarget(self, frames):
-    return self.t_output.eval(feed_dict = {
-        self.input: [f.datax for f in frames]
-    })
-
-  def Train(self, mini_batch):
+  def Train(self, tnn, mini_batch):
     frame_batch = [d[0] for d in mini_batch]
     action_batch = [d[1] for d in mini_batch]
     frame1_batch = [d[2] for d in mini_batch]
 
-    t_q1_batch = self.EvalTarget(frame1_batch)
+    t_q1_batch = tnn.Eval(frame1_batch)
     y_batch = [0] * len(mini_batch)
     if not DOUBLE_Q:
       for i in xrange(len(mini_batch)):
         reward = frame1_batch[i].reward
-        if reward < 0:
+        if frame1_batch[i].terminal:
           y_batch[i] = reward
         else:
           y_batch[i] = reward + GAMMA * np.max(t_q1_batch[i])
@@ -387,7 +417,7 @@ class NeuralNetwork:
       q1_batch = self.Eval(frame1_batch)
       for i in xrange(len(mini_batch)):
         reward = frame1_batch[i].reward
-        if reward < 0:
+        if frame1_batch[i].terminal:
           y_batch[i] = reward
         else:
           y_batch[i] = reward + GAMMA * t_q1_batch[i][np.argmax(q1_batch[i])]
@@ -400,62 +430,12 @@ class NeuralNetwork:
     self.optimizer.run(feed_dict = feed_dict)
     return self.cost.eval(feed_dict = feed_dict), y_batch[-1]
 
-  def UpdateTargetNetwork(self, sess):
-    sess.run(self.t_w1.assign(self.w1))
-    sess.run(self.t_b1.assign(self.b1))
-    sess.run(self.t_w2.assign(self.w2))
-    sess.run(self.t_b2.assign(self.b2))
-    sess.run(self.t_w3.assign(self.w3))
-    sess.run(self.t_b3.assign(self.b3))
-
-  def Std(self):
-    return (
-        np.std(self.w1.eval()),
-        np.std(self.b1.eval()),
-        np.std(self.w2.eval()),
-        np.std(self.b2.eval()),
-        np.std(self.w3.eval()),
-        np.std(self.b3.eval()),
-        )
+  def CopyFrom(self, sess, src):
+    for v1, v2 in zip(self.Vars(), src.Vars()):
+      sess.run(v1.assign(v2))
 
   def CheckSum(self):
-    return (
-        np.sum(self.w1.eval()),
-        np.sum(self.b1.eval()),
-        np.sum(self.w2.eval()),
-        np.sum(self.b2.eval()),
-        np.sum(self.w3.eval()),
-        np.sum(self.b3.eval()),
-        )
-
-  def CheckSumTarget(self):
-    return (
-        np.sum(self.t_w1.eval()),
-        np.sum(self.t_b1.eval()),
-        np.sum(self.t_w2.eval()),
-        np.sum(self.t_b2.eval()),
-        np.sum(self.t_w3.eval()),
-        np.sum(self.t_b3.eval()),
-        )
-
-
-# Hyperparameters.
-GAMMA = 0.99
-INITIAL_EPSILON = 1.0
-FINAL_EPSILON = 0.1
-EXPLORE_STEPS = 1000000
-OBSERVE_STEPS = 0 # 10000
-REPLAY_MEMORY = 100000 # 2000  # ~6G memory
-MINI_BATCH_SIZE = 32
-TRAIN_INTERVAL = 1
-UPDATE_TARGET_NETWORK_INTERVAL = 10000
-if DOUBLE_Q:
-  UPDATE_TARGET_NETWORK_INTERVAL = 30000
-  FINAL_EPSILON = 0.01
-
-CHECKPOINT_DIR = 'galaxian2c/'
-CHECKPOINT_FILE = 'model.ckpt'
-SAVE_INTERVAL = 1000 # 10000
+    return [np.sum(var.eval()) for var in self.Vars()]
 
 
 def FormatList(l):
@@ -463,7 +443,9 @@ def FormatList(l):
 
 def Run():
   memory = deque()
-  nn = NeuralNetwork()
+  memoryx = deque()
+  nn = NeuralNetwork('nn')
+  tnn = NeuralNetwork('tnn', trainable=False)
   game = Game()
   frame = game.Step('_')
   frame.AddSnapshotsFromSelf()
@@ -481,12 +463,12 @@ def Run():
     else:
       print("No checkpoint found")
 
-    nn.UpdateTargetNetwork(sess)
+    tnn.CopyFrom(sess, nn)
 
     steps = 0
     epsilon = INITIAL_EPSILON
     cost = 1e9
-    y_val = -1
+    y_val = 1e9
     while True:
       if random.random() <= epsilon:
         q_val = []
@@ -506,11 +488,16 @@ def Run():
       memory.append((frame, action_val, frame1))
       if len(memory) > REPLAY_MEMORY:
         memory.popleft()
+      if frame1.reward != 0:
+        memoryx.append((frame, action_val, frame1))
+        if len(memoryx) > REPLAY_MEMORY:
+          memoryx.popleft()
 
       if steps % TRAIN_INTERVAL == 0 and steps > OBSERVE_STEPS:
         mini_batch = random.sample(memory, min(len(memory), MINI_BATCH_SIZE))
+        mini_batch += random.sample(memoryx, min(len(memoryx), MINI_BATCH_SIZE))
         mini_batch.append(memory[-1])
-        cost, y_val = nn.Train(mini_batch)
+        cost, y_val = nn.Train(tnn, mini_batch)
 
       frame = frame1
       steps += 1
@@ -519,9 +506,9 @@ def Run():
         epsilon -= (INITIAL_EPSILON - FINAL_EPSILON) / EXPLORE_STEPS
 
       if steps % UPDATE_TARGET_NETWORK_INTERVAL == 0:
-        print('Target network before:', nn.CheckSumTarget())
-        nn.UpdateTargetNetwork(sess)
-        print('Target network after:', nn.CheckSumTarget())
+        print('Target network before:', tnn.CheckSum())
+        tnn.CopyFrom(sess, nn)
+        print('Target network after:', tnn.CheckSum())
 
       if steps % SAVE_INTERVAL == 0:
         save_path = saver.save(sess, CHECKPOINT_DIR + CHECKPOINT_FILE,

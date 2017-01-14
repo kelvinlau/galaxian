@@ -4,6 +4,7 @@ SHOW_GRID = false
 SHOW_COOR = false
 SHOW_TILE_MAP = false
 SHOW_OBJECTS = false
+SHOW_STILL_ENEMIES = true
 SHOW_BANNER = false
 SHOW_AI_VISION = false
 SHOW_NETWORK = false
@@ -194,6 +195,7 @@ function Show(recent_games, genome)
     if g.missile.y == 200 then
       gui.drawline(g.galaxian.x, g.sight.y1, g.galaxian.x, g.sight.y2, 'red')
     end
+    -- galaxian
     gui.drawbox(g.galaxian.x-2, g.galaxian.y-2, g.galaxian.x+2, g.galaxian.y+2, 'green', 'clear')
   end
 
@@ -231,16 +233,20 @@ function Show(recent_games, genome)
   end
 
   if SHOW_OBJECTS then
-    for _, e in pairs(g.still_enemies) do
-      gui.drawbox(e.x - DX, e.y - DY / 2, e.x + DX, e.y + DY / 2, {0xFF, 0, 0, 0x80}, 'clear')
+    if SHOW_STILL_ENEMIES then
+      for _, e in pairs(g.still_enemies) do
+        gui.drawbox(e.x - 4, e.y - 4, e.x + 4, e.y + 4, {0xFF, 0, 0, 0x80}, 'clear')
+      end
     end
     for _, e in pairs(g.incoming_enemies) do
-      gui.drawbox(e.x - DX, e.y - DY / 2, e.x + DX, e.y + DY / 2, {0xFF, 0, 0, 0x80}, 'clear')
+      gui.drawbox(e.x - 4, e.y - 4, e.x + 4, e.y + 4, {0xFF, 0, 0, 0x80}, 'clear')
     end
     for _, b in pairs(g.bullets) do
-      gui.drawbox(b.x - 4, b.y - 4, b.x + 4, b.y + 4, {0xFF, 0xFF, 0, 0x80}, 'clear')
+      gui.drawbox(b.x - 2, b.y - 4, b.x + 2, b.y + 4, {0xFF, 0xFF, 0, 0x80}, 'clear')
     end
-    gui.drawbox(g.galaxian.x - 4, g.galaxian.y, g.galaxian.x + 4, g.galaxian.y + 8, 'green')
+    if not SHOW_AI_VISION then
+      gui.drawbox(g.galaxian.x - 4, g.galaxian.y, g.galaxian.x + 4, g.galaxian.y + 8, 'green')
+    end
   end
 
   if SHOW_NETWORK and genome ~= nil then

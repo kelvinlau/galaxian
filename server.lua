@@ -5,9 +5,15 @@
 require("auxlib");
 require("game")
 
+SHOW_AI_VISION = false
+SHOW_OBJECTS = false
+SHOW_STILL_ENEMIES = false
+
+SMALL_MODE = true
+
 ---- Responding ----
 
-function Respond(client, seq, g, action, reward)
+function Respond(client, seq, g, action, reward, terminal)
   --emu.print("Respond", seq)
   local line = ""
   function Append(x)
@@ -16,6 +22,11 @@ function Respond(client, seq, g, action, reward)
 
   Append(seq)
   Append(reward)
+  if terminal then
+    Append(1)
+  else
+    Append(0)
+  end
   Append(action)
   Append(g.galaxian.x)
   Append(g.galaxian.y)
@@ -82,8 +93,24 @@ end
 
 ---- UI ----
 
-function ShowScore(max_score)
-  gui.drawtext(10, 10, "Max Score " .. max_score)
+function ShowScore(score, max_score)
+  gui.drawtext(10, 10, "Score " .. score)
+  gui.drawtext(60, 10, "Max Score " .. max_score)
+end
+
+---- Small mode ----
+
+function Hit(rg)
+  if #rg[1].incoming_enemies >  0 then return false end
+  if #rg[2].incoming_enemies >  0 then return false end
+  if #rg[3].incoming_enemies == 0 then return false end
+  if #rg[4].incoming_enemies == 0 then return false end
+  for i = 1, 3 do
+    if #rg[i].still_enemies ~= #rg[4].still_enemies then
+      return false
+    end
+  end
+  return true
 end
 
 ---- Script starts here ----
@@ -95,9 +122,9 @@ INIT_STATE = savestate.create(9)
 savestate.save(INIT_STATE)
 
 human_play = false
-prev_score = 0
 max_score = 0
 
+-- Dialog.
 dialogs = dialogs + 1;
 handles[dialogs] = iup.dialog{iup.vbox{
   iup.button{
@@ -120,6 +147,14 @@ handles[dialogs] = iup.dialog{iup.vbox{
       end
   },
   iup.button{
+    title="Show AI vision",
+    action=
+      function (self)
+        SHOW_AI_VISION = not SHOW_AI_VISION
+        SHOW_OBJECTS = not SHOW_OBJECTS
+      end
+  },
+  iup.button{
     title="Save",
     action=
       function (self)
@@ -138,6 +173,7 @@ handles[dialogs] = iup.dialog{iup.vbox{
   title=""}
 handles[dialogs]:show();
 
+-- Socket.
 local socket = require("socket")
 local server = assert(socket.bind("*", 62343))
 local ip, port = server:getsockname()
@@ -148,37 +184,74 @@ local client = server:accept()
 -- client:settimeout(1)
 -- client:close()
 
+local recent_games = {}
+local reward_sum = 0
+
 while true do
   local control = nil
   local seq = nil
   control, seq = ReadControl(client)
 
-  if human_play then
-    control = {}
-  end
+  local reward = 0
+  local terminal = false
 
-  -- Advance 10 frames. If dead, start over.
-  for i = 1, 10 do
-    ShowScore(max_score)
-    joypad.set(1, control)
+  -- Advance 5 frames. If dead, start over.
+  for i = 1, 5 do
+    local rg = {}
+    rg[0] = GetGame()
+    Show(rg)
+    ShowScore(reward_sum, max_score)
+    if human_play and i == 1 then
+      joypad.set(1, {})
+    else
+      joypad.set(1, control)
+    end
     emu.frameadvance()
+    if human_play and i == 1 then
+      control = joypad.get(1)
+    end
+    g = GetGame()
     if IsDead() then
-      SkipFrames(60)
-      savestate.load(INIT_STATE)
-      prev_score = 1000  -- Next respond with have reward = -1000.
+      reward = -1
+      terminal = true
+      break
+    elseif #g.incoming_enemies > 1 then
+      reward = 1
+      terminal = true
       break
     end
   end
 
-  if control == {} then
-    control = joypad.get(1, control)
-  end
-
   local g = GetGame()
+  if #recent_games == 0 then
+    for i = 1, 4 do
+      recent_games[i] = g
+    end
+  else
+    for i = 4, 2, -1 do
+      recent_games[i] = recent_games[i-1]
+    end
+    recent_games[1] = g
+  end
+  recent_games[0] = g
   local action = ToAction(control)
-  local reward = g.score - prev_score
-  Respond(client, seq, g, action, reward)
+  if not terminal then
+    if SMALL_MODE then
+      if Hit(recent_games) then
+        reward = 1
+      end
+    else
+      reward = g.score - recent_games[2].score
+    end
+  end
+  Respond(client, seq, g, action, reward, terminal)
 
-  prev_score = g.score
-  max_score = math.max(max_score, g.score)
+  reward_sum = reward_sum + reward
+  max_score = math.max(max_score, reward_sum)
+
+  if terminal then
+    savestate.load(INIT_STATE)
+    reward_sum = 0
+    recent_games = {}
+  end
 end
