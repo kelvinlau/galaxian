@@ -2,12 +2,18 @@ from __future__ import print_function
 from collections import deque
 import os
 import random
+import time
+import pygame
+from pygame.locals import *
 import numpy as np
 import tensorflow as tf
 
 
+PLAY = True
+
 SIDE = 4
 INPUT_DIM = (1+SIDE) * SIDE
+SIZE = 100
 
 ACTION_NAMES = ['_', 'L', 'R']
 ACTION_ID = {'_': 0, 'L': 1, 'R': 2}
@@ -15,7 +21,7 @@ OUTPUT_DIM = len(ACTION_NAMES)
 
 # Hyperparameters.
 GAMMA = 0.99
-INITIAL_EPSILON = 1.0
+INITIAL_EPSILON = 1
 FINAL_EPSILON = 0.1
 EXPLORE_STEPS = 100000
 OBSERVE_STEPS = 0
@@ -27,6 +33,9 @@ UPDATE_TARGET_NETWORK_INTERVAL = 1000
 DOUBLE_Q = True
 if DOUBLE_Q:
   FINAL_EPSILON = 0.01
+
+if PLAY:
+  INITIAL_EPSILON = 0.01
 
 # Checkpoint.
 CHECKPOINT_DIR = 'simple/'
@@ -50,7 +59,21 @@ class Game:
     self.y = random.randint(0, SIDE-1)
     self.data = np.zeros((SIDE, SIDE))
 
+    pygame.init()
+    self.clock = pygame.time.Clock()
+    self.screen = pygame.display.set_mode(((SIDE+1)*SIZE, SIDE*SIZE))
+    pygame.display.set_caption('Simple Game')
+
   def Step(self, action):
+    # Comsume pygame events.
+    for event in pygame.event.get():
+      if event.type == QUIT:
+        pygame.quit()
+        sys.exit()
+
+    if PLAY:
+      time.sleep(0.1)
+
     reward = self.data[0][self.y]
     row = np.array([random.randint(-1, 1) for i in xrange(SIDE)])
     self.data = np.append(self.data[1:], [row], axis=0)
@@ -58,8 +81,30 @@ class Game:
       self.y -= 1
     if action == 'R' and self.y + 1 < SIDE:
       self.y += 1
-    # TODO: terminal=true if -1
-    return Frame(action, reward, False, self.y, self.data.copy())
+    terminal = False
+
+    BLACK = (0, 0, 0)
+    WHITE = (127, 127, 127)
+    GREEN = (0, 127, 0)
+    RED = (127, 0, 0)
+    self.screen.fill(BLACK)
+    pygame.draw.rect(self.screen, WHITE, pygame.Rect(0, self.y*SIZE, SIZE, SIZE))
+    for x in xrange(SIDE):
+      for y in xrange(SIDE):
+        if self.data[x][y] != 0:
+          pygame.draw.rect(self.screen, GREEN if self.data[x][y] > 0 else RED,
+              pygame.Rect((x+1)*SIZE, y*SIZE, SIZE, SIZE))
+    pygame.display.update()
+    self.clock.tick(60)
+
+    return Frame(action, reward, terminal, self.y, self.data.copy())
+
+
+def TestGame():
+  g = Game()
+  while True:
+    action = raw_input().strip()
+    g.Step(action)
 
 
 def ClippedError(x):
