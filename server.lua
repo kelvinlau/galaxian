@@ -88,8 +88,7 @@ end
 ---- UI ----
 
 function ShowScore(score, max_score)
-  gui.drawtext(10, 10, "Score " .. score)
-  gui.drawtext(60, 10, "Max Score " .. max_score)
+  gui.drawtext(10, 10, "Max Score " .. max_score)
 end
 
 ---- Script starts here ----
@@ -154,8 +153,6 @@ local client = server:accept()
 -- client:close()
 
 local prev_score = 0
-local prev_inum = 0
-local prev_snum = 0
 local prev_y = 0
 local reward_sum = 0
 
@@ -184,10 +181,6 @@ while true do
       reward = -1000
       terminal = true
       break
-    elseif #g.incoming_enemies > 1 then
-      reward = 1
-      terminal = true
-      break
     end
   end
 
@@ -195,18 +188,13 @@ while true do
     SkipFrames(60)  -- Show explosion.
     savestate.load(INIT_STATE)
     prev_score = 0
-    prev_inum = 0
     reward_sum = 0
   end
 
   local g = GetGame()
-  local inum = #g.incoming_enemies
-  local snum = #g.still_enemies
   local action = ToAction(control)
   if not terminal then
-    if inum < prev_inum and snum == prev_snum then
-      reward = 1
-    end
+    reward = g.score - prev_score
   end
   Respond(client, seq, g, action, reward, terminal)
 
@@ -216,11 +204,4 @@ while true do
   end
 
   prev_score = g.score
-  prev_inum = inum
-  prev_snum = snum
-  if inum > 0 then
-    prev_y = g.incoming_enemies[1].y
-  else
-    prev_y = 0
-  end
 end

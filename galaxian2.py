@@ -20,20 +20,22 @@ import random
 import time
 import math
 import socket
+import cv2
 import numpy as np
 import tensorflow as tf
 
 
 # Game input/output.
-NUM_STILL_ENEMIES = 0 # 10
-NUM_INCOMING_ENEMIES = 1 # 6
-NUM_BULLETS = 1 # 6
+NUM_STILL_ENEMIES = 10
+NUM_INCOMING_ENEMIES = 6
+NUM_BULLETS = 6
 
 RAW_IMAGE = True
 if RAW_IMAGE:
   SCALE = 2
   WIDTH = 256/SCALE
   HEIGHT = 240/SCALE
+  SIDE = 84
 else:
   # galaxian.x, missile.y, still enemy xs, 6 incoming enemies and 6 bullets.
   # TODO: Try adding if the galaxian is aimming at a gap.
@@ -61,7 +63,7 @@ if DOUBLE_Q:
   FINAL_EPSILON = 0.01
 
 # Checkpoint.
-CHECKPOINT_DIR = 'galaxian2f/'
+CHECKPOINT_DIR = 'galaxian2g/'
 CHECKPOINT_FILE = 'model.ckpt'
 SAVE_INTERVAL = 100
 
@@ -190,6 +192,8 @@ class Frame:
       for b in bullets:
         self.AddRect(b, 4, 12)
 
+      self.data = cv2.resize(self.data, (SIDE, SIDE))
+
   @staticmethod
   def InvertX(dx):
     if dx > 0:
@@ -208,11 +212,11 @@ class Frame:
             np.reshape(self.data, (INPUT_DIM, 1)),
             axis = 1)
     else:
-      self.datax = np.reshape(self.data, (WIDTH, HEIGHT, 1))
+      self.datax = np.reshape(self.data, (SIDE, SIDE, 1))
       for i in xrange(NUM_SNAPSHOTS-1):
         self.datax = np.append(
             self.datax,
-            np.reshape(self.data, (WIDTH, HEIGHT, 1)),
+            np.reshape(self.data, (SIDE, SIDE, 1)),
             axis = 2)
 
   def AddSnapshotsFromPrev(self, prev_frame):
@@ -223,7 +227,7 @@ class Frame:
           axis = 1)
     else:
       self.datax = np.append(
-          np.reshape(self.data, (WIDTH, HEIGHT, 1)),
+          np.reshape(self.data, (SIDE, SIDE, 1)),
           prev_frame.datax[:, :, :NUM_SNAPSHOTS-1],
           axis = 2)
 
@@ -334,14 +338,14 @@ class NeuralNetwork:
       else:
         # Input image.
         self.input = tf.placeholder(tf.float32,
-            [None, WIDTH, HEIGHT, NUM_SNAPSHOTS])
+            [None, SIDE, SIDE, NUM_SNAPSHOTS])
         print('input:', self.input.get_shape())
 
-        # Conv 1: 8x6 is the enemy size.
-        self.w1 = var([16, 12, NUM_SNAPSHOTS, 32])
+        # Conv 1.
+        self.w1 = var([8, 8, NUM_SNAPSHOTS, 32])
         self.b1 = var([32])
         conv1 = tf.nn.relu(tf.nn.conv2d(
-          self.input, self.w1, strides = [1, 8, 6, 1], padding = "VALID")
+          self.input, self.w1, strides = [1, 4, 4, 1], padding = "VALID")
           + self.b1)
         print('conv1:', conv1.get_shape())
 
@@ -362,15 +366,15 @@ class NeuralNetwork:
         print('conv3:', conv3.get_shape())
 
         # Flatten conv 3.
-        conv3_flat = tf.reshape(conv3, [-1, 1536])
+        conv3_flat = tf.reshape(conv3, [-1, 3136])
 
         # Fully connected 4.
-        self.w4 = var([1536, 384])
-        self.b4 = var([384])
+        self.w4 = var([3136, 512])
+        self.b4 = var([512])
         fc4 = tf.nn.relu(tf.matmul(conv3_flat, self.w4) + self.b4)
 
         # Output.
-        self.w5 = var([384, OUTPUT_DIM])
+        self.w5 = var([512, OUTPUT_DIM])
         self.b5 = var([OUTPUT_DIM])
         self.output = (tf.matmul(fc4, self.w5) + self.b5)
 
@@ -385,7 +389,7 @@ class NeuralNetwork:
           reduction_indices = 1)
       self.cost = tf.reduce_mean(ClippedError(q_action - self.y))
       self.optimizer = tf.train.AdamOptimizer(
-          learning_rate=1e-1, epsilon=1e-8).minimize(self.cost)
+          learning_rate=1e-2, epsilon=1e-8).minimize(self.cost)
 
   def Vars(self):
     return self.theta
