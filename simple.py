@@ -1,3 +1,14 @@
+"""Simple game.
+
+simple3:
+Trained with dense blocks for 100,000 steps (30 min), reached q values ~35
+Play with dense blocks: 2000 steps -> 1260 score
+Play with sparse blocks: 2000 steps -> 390 score
+
+TODO: use coordinates as input
+TODO: conv2d 3,2 -> 3,1
+"""
+
 from __future__ import print_function
 from collections import deque
 import os
@@ -10,12 +21,11 @@ import numpy as np
 import tensorflow as tf
 
 
-PLAY = False
-
+PLAY = True
+SPARSE = True
 SIDE = 8
 INPUT_DIM = (1+SIDE) * SIDE
 SIZE = 50
-
 ACTION_NAMES = ['_', 'L', 'R']
 ACTION_ID = {'_': 0, 'L': 1, 'R': 2}
 OUTPUT_DIM = len(ACTION_NAMES)
@@ -74,11 +84,15 @@ class Game:
         sys.exit()
 
     if PLAY:
-      time.sleep(0.2)
+      time.sleep(0.0)
 
     reward = self.data[-1][self.x]
-    row = np.array([random.randint(-1, 1) for i in xrange(SIDE)])
-    self.data = np.append([row], self.data[:-1], axis=0)
+    if not SPARSE:
+      row = np.array([random.randint(-1, 1) for i in xrange(SIDE)])
+    else:
+      row = np.zeros(SIDE)
+      row[random.randint(0, SIDE-1)] = random.randint(-1, 1)
+    self.data = np.append([row], self.data, axis=0)
     if action == 'L' and self.x - 1 >= 0:
       self.x -= 1
     if action == 'R' and self.x + 1 < SIDE:
@@ -91,16 +105,18 @@ class Game:
     GREEN = (0, 127, 0)
     RED = (127, 0, 0)
     self.screen.fill(BLACK)
-    pygame.draw.rect(self.screen, WHITE, pygame.Rect(self.x*SIZE, SIDE*SIZE, SIZE, SIZE))
-    for y in xrange(SIDE):
+    for y in xrange(SIDE+1):
       for x in xrange(SIDE):
         if self.data[y][x] != 0:
           pygame.draw.rect(self.screen, GREEN if self.data[y][x] > 0 else RED,
               pygame.Rect(x*SIZE, y*SIZE, SIZE, SIZE))
+    pygame.draw.rect(self.screen, WHITE, pygame.Rect(self.x*SIZE, SIDE*SIZE, SIZE, SIZE))
     score = pygame.font.Font(None, 15).render("%d" % self.score, 1, (255,255,0))
     self.screen.blit(score, (10, 10))
     pygame.display.update()
     self.clock.tick(60)
+
+    self.data = self.data[:-1]
 
     return Frame(action, reward, terminal, self.x, self.data)
 
