@@ -9,7 +9,7 @@ SHOW_AI_VISION = false
 SHOW_OBJECTS = false
 SHOW_STILL_ENEMIES = false
 
-SMALL_MODE = true
+SMALL_MODE = false
 
 ---- Responding ----
 
@@ -95,7 +95,7 @@ end
 
 function ShowScore(score, max_score)
   gui.drawtext(10, 10, "Score " .. score)
-  gui.drawtext(60, 10, "Max Score " .. max_score)
+  gui.drawtext(100, 10, "Max Score " .. max_score)
 end
 
 ---- Small mode ----
@@ -215,7 +215,7 @@ while true do
       reward = -1
       terminal = true
       break
-    elseif #g.incoming_enemies > 1 then
+    elseif SMALL_MODE and #g.incoming_enemies > 1 then
       reward = 1
       terminal = true
       break

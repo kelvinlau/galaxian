@@ -3,13 +3,11 @@
 Ref:
 https://storage.googleapis.com/deepmind-media/dqn/DQNNaturePaper.pdf
 https://www.nervanasys.com/demystifying-deep-reinforcement-learning/
+Double Q Learning: https://arxiv.org/pdf/1509.06461v3.pdf
 
 TODO: Save png to verify input data.
 TODO: Scale down the image by 2x.
-TODO: Sigmoid vs ReLu.
 TODO: Random no-op actions at the start of episodes.
-TODO: Double Q Learning: https://arxiv.org/pdf/1509.06461v3.pdf
-TODO: Absolute coordinates as input.
 """
 
 from __future__ import print_function
@@ -27,8 +25,8 @@ import tensorflow as tf
 
 # Game input/output.
 NUM_STILL_ENEMIES = 0 # 10
-NUM_INCOMING_ENEMIES = 1 # 6
-NUM_BULLETS = 2 # 6
+NUM_INCOMING_ENEMIES = 6
+NUM_BULLETS = 6
 
 RAW_IMAGE = False
 if RAW_IMAGE:
@@ -63,7 +61,7 @@ if DOUBLE_Q:
   FINAL_EPSILON = 0.01
 
 # Checkpoint.
-CHECKPOINT_DIR = 'galaxian2i/'
+CHECKPOINT_DIR = 'galaxian2j/'
 CHECKPOINT_FILE = 'model.ckpt'
 SAVE_INTERVAL = 10000
 
@@ -98,8 +96,8 @@ class Frame:
 
     # Cap reward in [-1, 1].
     self.reward = max(-1, min(1, self.NextInt()))
-    #if self.reward == 0:
-    #  self.reward = 0.025  # For staying alive.
+    if self.reward == 0:
+      self.reward = 0.025  # For staying alive.
 
     self.terminal = self.NextInt()
 
@@ -120,11 +118,13 @@ class Frame:
     incoming_enemies = []
     for i in xrange(self.NextInt()):
       incoming_enemies.append(self.NextPoint())
+    incoming_enemies.sort(key=lambda e: e.y, reverse=True)
     incoming_enemies = incoming_enemies[:NUM_INCOMING_ENEMIES]
 
     bullets = []
     for i in xrange(self.NextInt()):
       bullets.append(self.NextPoint())
+    bullets.sort(key=lambda e: e.y, reverse=True)
     bullets = bullets[:NUM_BULLETS]
 
     if not RAW_IMAGE:
