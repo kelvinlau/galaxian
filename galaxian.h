@@ -1,6 +1,8 @@
 #ifndef __GALAXIAN_H
 #define __GALAXIAN_H
 
+#include <vector>
+#include <map>
 #include "fceu/utils/md5.h"
 #include "fceu/driver.h"
 #include "fceu/drivers/common/args.h"
@@ -20,22 +22,24 @@ struct State {
   Point galaxian;
   //vector<Point> still_enemies;
   vector<int> still_enemies_encoded;
-  vector<Point> incoming_enemies;
-  vector<Point> bullets;
+  map<int, Point> incoming_enemies;
+  map<int, Point> bullets;
   Point missile;
   int score;
   int lifes;
 };
 
 // Incoming enemies.
-vector<Point> GetIncomingEnemies() {
-  vector<Point> ret;
+map<int, Point> GetIncomingEnemies() {
+  map<int, Point> ret;
+  int id = 0;
   for (int addr = 0x203; addr <= 0x253; addr += 0x10) {
     int x = RAM[addr];
     int y = RAM[addr + 1];
     if (x > 0 and y > 0) {
-      ret.push_back({(x+8)%0xFF, y+6});
+      ret[id] = Point{(x+8)%0xFF, y+6};
     }
+    ++id;
   }
   return ret;
 }
@@ -72,14 +76,16 @@ vector<int> GetStillEnemiesEncoded() {
 }
 
 // Incoming enemy bullets.
-vector<Point> GetBullets() {
-  vector<Point> ret;
+map<int, Point> GetBullets() {
+  map<int, Point> ret;
+  int id = 0;
   for (int addr = 0x28B; addr <= 0x29F; addr += 4) {
     int x = RAM[addr];
     int y = RAM[addr - 3];
     if (x > 0 and y > 0) {
-      ret.push_back({x + 4, y + 8});
+      ret[id] = Point{x + 4, y + 8};
     }
+    ++id;
   }
   return ret;
 }

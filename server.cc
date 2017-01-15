@@ -61,6 +61,9 @@ class Server {
     vector<uint8> beginning;
     Emulator::Save(&beginning);
 
+    vector<uint8> reload;
+    Emulator::Save(&reload);
+
     CHECK(GetState().lifes == 2);
 
     int prev_score = 0;
@@ -70,32 +73,41 @@ class Server {
       //cout << "\n";
       //Timer timer(StringPrintf("Step %d", step));
 
+      if (random() < 0.01) {
+        Emulator::Save(&reload);
+      }
+
       uint8 input;
       int seq;
       RecvInput(&input, &seq);
       CHECK_EQ(step, seq);
 
-      for (int i = 0; i < 10; ++i) {
+      bool terminal = false;
+      int reward = 0;
+
+      for (int i = 0; i < 5; ++i) {
         Emulator::Step(input);
         if (IsDead()) {
-          SkipFrames(60);
-          Emulator::Load(&beginning);
-          prev_score = 1000;  // Next respond will have reward = -1000.
+          reward = -1;
+          terminal = true;
           break;
         }
       }
 
       const State s = GetState();
-      const int reward = s.score - prev_score;
-      Respond(seq, s, reward, input);
+      if (!terminal) {
+        reward = s.score - prev_score;
+      }
+      Respond(seq, s, reward, terminal, input);
       //cout << "Missile:" << s.missile.x << "," << s.missile.y << "\n";
 
       prev_score = s.score;
       max_score = std::max(max_score, s.score);
 
-      if (step % 100 == 0) {
+      if (terminal) {
+        Emulator::Load(random() < 0.1 ? &beginning : &reload);
         cout << NowStr() << " Step " << step << " Max score: " << max_score
-             << "\n";
+             << " Score: " << s.score << "\n";
       }
     }
   }
@@ -140,11 +152,13 @@ class Server {
     *input = ToInput(action);
   }
 
-  void Respond(int seq, const State& s, int reward, uint8 input) {
+  void Respond(int seq, const State& s, int reward, bool terminal,
+               uint8 input) {
     //Timer timer("Respond");
     buffer_.clear();
     AppendInt(seq);
     AppendInt(reward);
+    AppendInt(terminal ? 1 : 0);
     AppendChar(ToAction(input));
     AppendPoint(s.galaxian);
     AppendPoint(s.missile);
@@ -152,12 +166,14 @@ class Server {
       AppendInt(e);
     }
     AppendInt(s.incoming_enemies.size());
-    for (const Point& e : s.incoming_enemies) {
-      AppendPoint(e);
+    for (const pair<int, Point>& e : s.incoming_enemies) {
+      AppendInt(e.first);
+      AppendPoint(e.second);
     }
     AppendInt(s.bullets.size());
-    for (const Point& b : s.bullets) {
-      AppendPoint(b);
+    for (const pair<int, Point>& b : s.bullets) {
+      AppendInt(b.first);
+      AppendPoint(b.second);
     }
     SendBuffer();
   }
