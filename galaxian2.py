@@ -35,12 +35,12 @@ if RAW_IMAGE:
   WIDTH = 256/SCALE
   HEIGHT = 240/SCALE
   SIDE = 84
+  NUM_SNAPSHOTS = 4
 else:
   DX = 8
   WIDTH = 256 / DX
-  INPUT_DIM = 1 + 3 * WIDTH
+  INPUT_DIM = 1 + 4 + 2 * WIDTH
 
-NUM_SNAPSHOTS = 4
 
 ACTION_NAMES = ['_', 'L', 'R', 'A']
 ACTION_ID = {ACTION_NAMES[i]: i for i in xrange(len(ACTION_NAMES))}
@@ -50,19 +50,19 @@ OUTPUT_DIM = len(ACTION_NAMES)  # TODO(kelvinlau): 6?
 GAMMA = 0.99
 INITIAL_EPSILON = 1.0
 FINAL_EPSILON = 0.1
-EXPLORE_STEPS = 100000
+EXPLORE_STEPS = 1000000
 OBSERVE_STEPS = 0 # 10000
-REPLAY_MEMORY = 1000 # 2000  # ~6G memory
+REPLAY_MEMORY = 100000 # 2000  # ~6G memory
 MINI_BATCH_SIZE = 32
 TRAIN_INTERVAL = 1
-UPDATE_TARGET_NETWORK_INTERVAL = 1000
+UPDATE_TARGET_NETWORK_INTERVAL = 10000
 
 DOUBLE_Q = True
 if DOUBLE_Q:
   FINAL_EPSILON = 0.01
 
 # Checkpoint.
-CHECKPOINT_DIR = 'galaxian2l/'
+CHECKPOINT_DIR = 'galaxian2m/'
 CHECKPOINT_FILE = 'model.ckpt'
 SAVE_INTERVAL = 10000
 
@@ -99,8 +99,8 @@ class Frame:
 
     self.seq = self.NextInt()
 
-    # Cap reward in [-1, 0].
-    self.reward = max(-1, min(0, self.NextInt()))
+    # Cap reward in [-1, +1].
+    self.reward = max(-1, min(1, self.NextInt()))
 
     self.terminal = self.NextInt()
 
@@ -110,7 +110,7 @@ class Frame:
     galaxian = self.NextPoint()
     self.galaxian = galaxian
 
-    missile = self.NextPoint()
+    self.missile = self.NextPoint()
 
     # still enemies (encoded)
     dx = self.NextInt()
@@ -129,21 +129,13 @@ class Frame:
       bid = self.NextInt()
       self.bullets[bid] = self.NextPoint()
 
-    if not RAW_IMAGE:
-      data = []
-      if missile.y < 200:
-        data.append(missile.y / 200.0)
-      else:
-        data.append(0)
-      data += OneHot(WIDTH, galaxian.x / DX)
-      self.data = data
-    else:
+    if RAW_IMAGE:
       self.data = np.zeros((WIDTH, HEIGHT))
 
       self.AddRect(galaxian, 16, 16, .5)
 
-      if missile.y < 200:
-        self.AddRect(missile, 4, 8, .5)
+      if self.missile.y < 200:
+        self.AddRect(self.missile, 4, 8, .5)
 
       still_enemies = []
       for mask in masks:
@@ -177,8 +169,35 @@ class Frame:
 
   def AddPrev(self, prev_frames):
     if not RAW_IMAGE:
-      imap = [0.] * WIDTH
-      bmap = [0.] * WIDTH
+      self.data = []
+
+      if self.missile.y < 200:
+        self.data.append(self.missile.y / 200.0)
+      else:
+        self.data.append(0)
+
+      closest = []
+      if self.incoming_enemies:
+        eid, e = max(self.incoming_enemies.items(), key = lambda p: p[1].y)
+        dx = (e.x - self.galaxian.x) / 256.0
+        dy = (e.y - self.galaxian.y) / 200.0
+        closest += [dx, dy]
+        if prev_frames:
+          prev = prev_frames[0]
+          if eid in prev.incoming_enemies:
+            pe = prev.incoming_enemies[eid]
+            dx = (pe.x - e.x) / 256.0
+            dy = (pe.y - e.y) / 200.0
+            closest += [dx, dy]
+        if len(closest) == 2:
+          closest += [0, 0]
+      else:
+        closest = [3, 3, 3, 3]
+      self.data += closest
+
+      self.data += OneHot(WIDTH, self.galaxian.x / DX)
+
+      hmap = [0.] * WIDTH
       if prev_frames:
         prev = prev_frames[0]  # TODO: use furthest frame with same enemies/bullets
         steps = len(prev_frames)
@@ -189,19 +208,20 @@ class Frame:
             if pe.y < e.y < y:
               x = (e.x-pe.x)*1.0/(e.y-pe.y)*(y-pe.y)+pe.x
               t = (y-e.y)*1.0/(e.y-pe.y)*steps
-              imap[max(0, min(WIDTH-1, int(round(x))/DX))] += max(0., 1.-t/24.)
+              hmap[max(0, min(WIDTH-1, int(round(x))/DX))] += max(0., 1.-t/24.)
         for eid, e in self.bullets.iteritems():
           if eid in prev.bullets:
             pe = prev.bullets[eid]
             if pe.y < e.y < y:
               x = (e.x-pe.x)*1.0/(e.y-pe.y)*(y-pe.y)+pe.x
               t = (y-e.y)*1.0/(e.y-pe.y)*steps
-              bmap[max(0, min(WIDTH-1, int(round(x))/DX))] += max(0., 1.-t/12.)
+              hmap[max(0, min(WIDTH-1, int(round(x))/DX))] += max(0., 1.-t/12.)
+      self.data += hmap
+
       if not self.terminal:
         ix = self.galaxian.x / DX
-        self.reward += max(0., 1. - imap[ix] - bmap[ix]) / 12.
-      self.data += imap
-      self.data += bmap
+        self.reward -= min(1., hmap[ix]) * .5
+
       assert len(self.data) == INPUT_DIM
       self.datax = np.array(self.data)
     else:
