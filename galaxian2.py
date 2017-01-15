@@ -8,6 +8,7 @@ Double Q Learning: https://arxiv.org/pdf/1509.06461v3.pdf
 TODO: Save png to verify input data.
 TODO: Scale down the image by 2x.
 TODO: Random no-op actions at the start of episodes.
+TODO: Calculate bullet intersect point.
 """
 
 from __future__ import print_function
@@ -51,17 +52,17 @@ INITIAL_EPSILON = 1.0
 FINAL_EPSILON = 0.1
 EXPLORE_STEPS = 1000000
 OBSERVE_STEPS = 0 # 10000
-REPLAY_MEMORY = 100000 # 2000  # ~6G memory
+REPLAY_MEMORY = 1000 # 2000  # ~6G memory
 MINI_BATCH_SIZE = 32
 TRAIN_INTERVAL = 1
-UPDATE_TARGET_NETWORK_INTERVAL = 10000
+UPDATE_TARGET_NETWORK_INTERVAL = 1000
 
 DOUBLE_Q = True
 if DOUBLE_Q:
   FINAL_EPSILON = 0.01
 
 # Checkpoint.
-CHECKPOINT_DIR = 'galaxian2j/'
+CHECKPOINT_DIR = 'galaxian2k/'
 CHECKPOINT_FILE = 'model.ckpt'
 SAVE_INTERVAL = 10000
 
@@ -96,8 +97,6 @@ class Frame:
 
     # Cap reward in [-1, 1].
     self.reward = max(-1, min(1, self.NextInt()))
-    if self.reward == 0:
-      self.reward = 0.025  # For staying alive.
 
     self.terminal = self.NextInt()
 
@@ -105,6 +104,10 @@ class Frame:
     self.action_id = ACTION_ID[self.action]
 
     galaxian = self.NextPoint()
+
+    # For staying alive. Give it more reward if stay in the middle.
+    if self.reward == 0:
+      self.reward = (128 - abs(galaxian.x - 128)) / 128.0 / 100
 
     missile = self.NextPoint()
 
@@ -141,27 +144,27 @@ class Frame:
       for mask in masks:
         if mask:
           x = (dx + 48 + 8 + 16 * i) % 256;
-          data.append(x / 256.0)
+          data.append((x - galaxian.x) / 256.0)
         else:
-          data.append(-1)
+          data.append(2)
 
       for e in incoming_enemies:
-        dx = e.x / 256.0
-        dy = e.y / 200.0
+        dx = (e.x - galaxian.x) / 256.0
+        dy = (e.y - galaxian.y) / 200.0
         data.append(dx)
         data.append(dy)
       for i in xrange(NUM_INCOMING_ENEMIES - len(incoming_enemies)):
-        data.append(-1)
-        data.append(-1)
+        data.append(2)
+        data.append(2)
 
       for e in bullets:
-        dx = e.x / 256.0
-        dy = e.y / 200.0
+        dx = (e.x - galaxian.x) / 256.0
+        dy = (e.y - galaxian.y) / 200.0
         data.append(dx)
         data.append(dy)
       for i in xrange(NUM_BULLETS - len(bullets)):
-        data.append(-1)
-        data.append(-1)
+        data.append(2)
+        data.append(2)
 
       assert len(data) == INPUT_DIM, '%d vs %d' % (len(data), INPUT_DIM)
       self.data = np.array(data)
