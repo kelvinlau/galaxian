@@ -26,12 +26,14 @@ NUM_SNAPSHOTS = 3
 -- Incoming enemies.
 function GetIncomingEnemies()
   local ret = {}
+  local id = 0
   for addr=0x203,0x253,0x10 do
     local x = memory.readbyte(addr)
     local y = memory.readbyte(addr + 1)
     if x > 0 and y > 0 then
-      ret[#ret+1] = {x=(x+8)%0xFF, y=y+6}
+      ret[#ret+1] = {x=(x+8)%0xFF, y=y+6, id=id}
     end
+    id = id + 1
   end
   return ret
 end
@@ -70,12 +72,14 @@ end
 -- Incoming enemy bullets.
 function GetBullets()
   local ret = {}
+  local id = 0
   for addr=0x28B,0x29F,0x4 do
     local x = memory.readbyte(addr)
     local y = memory.readbyte(addr - 3)
     if x > 0 and y > 0 then
-      ret[#ret+1] = {x=x+4, y=y+8}
+      ret[#ret+1] = {x=x+4, y=y+8, id=id}
     end
+    id = id + 1
   end
   return ret
 end
@@ -158,6 +162,24 @@ end
 
 function InSightX(sight, t)
   return sight.x1 <= t.x and t.x < sight.x2
+end
+
+function FindBullet(g, id)
+  for _, e in pairs(g.bullets) do
+    if e.id == id then
+      return e
+    end
+  end
+  return nil
+end
+
+function FindIncomingEnemies(g, id)
+  for _, e in pairs(g.incoming_enemies) do
+    if e.id == id then
+      return e
+    end
+  end
+  return nil
 end
 
 ---- UI ----
@@ -246,6 +268,25 @@ function Show(recent_games, genome)
     end
     if not SHOW_AI_VISION then
       gui.drawbox(g.galaxian.x - 4, g.galaxian.y, g.galaxian.x + 4, g.galaxian.y + 8, 'green')
+    end
+    local pg = recent_games[4]
+    if pg ~= nil then
+      for _, b in pairs(g.bullets) do
+        local pb = FindBullet(pg, b.id)
+        if pb ~= nil and pb.y < b.y and b.y < Y2 then
+          local y = Y2-16
+          local x = (b.x-pb.x)/(b.y-pb.y)*(y-pb.y)+pb.x
+          gui.drawline(x, y, b.x, b.y, 'yellow')
+        end
+      end
+      for _, e in pairs(g.incoming_enemies) do
+        local pe = FindIncomingEnemies(pg, e.id)
+        if pe ~= nil and pe.y < e.y and e.y < Y2 then
+          local y = Y2-16
+          local x = (e.x-pe.x)/(e.y-pe.y)*(y-pe.y)+pe.x
+          gui.drawline(x, y, e.x, e.y, 'red')
+        end
+      end
     end
   end
 

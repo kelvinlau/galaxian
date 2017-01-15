@@ -8,7 +8,7 @@ Double Q Learning: https://arxiv.org/pdf/1509.06461v3.pdf
 TODO: Save png to verify input data.
 TODO: Scale down the image by 2x.
 TODO: Random no-op actions at the start of episodes.
-TODO: Calculate bullet intersect point.
+TODO: Training the model only on score increases.
 """
 
 from __future__ import print_function
@@ -36,21 +36,21 @@ if RAW_IMAGE:
   HEIGHT = 240/SCALE
   SIDE = 84
 else:
-  # galaxian.x, missile.y, still enemy xs, 6 incoming enemies and 6 bullets.
-  # TODO: Try adding if the galaxian is aimming at a gap.
-  INPUT_DIM = 1 + 1 + NUM_STILL_ENEMIES + 2 * (NUM_INCOMING_ENEMIES + NUM_BULLETS)
+  DX = 8
+  WIDTH = 256 / DX
+  INPUT_DIM = 1 + 3 * WIDTH
 
 NUM_SNAPSHOTS = 4
 
 ACTION_NAMES = ['_', 'L', 'R', 'A']
-ACTION_ID = {'_': 0, 'L': 1, 'R': 2, 'A': 3}
+ACTION_ID = {ACTION_NAMES[i]: i for i in xrange(len(ACTION_NAMES))}
 OUTPUT_DIM = len(ACTION_NAMES)  # TODO(kelvinlau): 6?
 
 # Hyperparameters.
 GAMMA = 0.99
 INITIAL_EPSILON = 1.0
 FINAL_EPSILON = 0.1
-EXPLORE_STEPS = 1000000
+EXPLORE_STEPS = 100000
 OBSERVE_STEPS = 0 # 10000
 REPLAY_MEMORY = 1000 # 2000  # ~6G memory
 MINI_BATCH_SIZE = 32
@@ -62,7 +62,7 @@ if DOUBLE_Q:
   FINAL_EPSILON = 0.01
 
 # Checkpoint.
-CHECKPOINT_DIR = 'galaxian2k/'
+CHECKPOINT_DIR = 'galaxian2l/'
 CHECKPOINT_FILE = 'model.ckpt'
 SAVE_INTERVAL = 10000
 
@@ -87,6 +87,10 @@ class Point:
     self.y = y
 
 
+def OneHot(n, i):
+  return [1 if j == i else 0 for j in xrange(n)]
+
+
 class Frame:
   def __init__(self, line):
     """Parse a Frame from a line."""
@@ -95,8 +99,8 @@ class Frame:
 
     self.seq = self.NextInt()
 
-    # Cap reward in [-1, 1].
-    self.reward = max(-1, min(1, self.NextInt()))
+    # Cap reward in [-1, 0].
+    self.reward = max(-1, min(0, self.NextInt()))
 
     self.terminal = self.NextInt()
 
@@ -104,10 +108,7 @@ class Frame:
     self.action_id = ACTION_ID[self.action]
 
     galaxian = self.NextPoint()
-
-    # For staying alive. Give it more reward if stay in the middle.
-    if self.reward == 0:
-      self.reward = (128 - abs(galaxian.x - 128)) / 128.0 / 100
+    self.galaxian = galaxian
 
     missile = self.NextPoint()
 
@@ -118,56 +119,24 @@ class Frame:
       masks.append(self.NextInt())
     masks = masks[:NUM_STILL_ENEMIES]
 
-    incoming_enemies = []
+    self.incoming_enemies = {}
     for i in xrange(self.NextInt()):
-      incoming_enemies.append(self.NextPoint())
-    incoming_enemies.sort(key=lambda e: e.y, reverse=True)
-    incoming_enemies = incoming_enemies[:NUM_INCOMING_ENEMIES]
+      eid = self.NextInt()
+      self.incoming_enemies[eid] = self.NextPoint()
 
-    bullets = []
+    self.bullets = {}
     for i in xrange(self.NextInt()):
-      bullets.append(self.NextPoint())
-    bullets.sort(key=lambda e: e.y, reverse=True)
-    bullets = bullets[:NUM_BULLETS]
+      bid = self.NextInt()
+      self.bullets[bid] = self.NextPoint()
 
     if not RAW_IMAGE:
       data = []
-
-      data.append(galaxian.x / 256.0)
-
       if missile.y < 200:
         data.append(missile.y / 200.0)
       else:
         data.append(0)
-
-      # still_enemies
-      for mask in masks:
-        if mask:
-          x = (dx + 48 + 8 + 16 * i) % 256;
-          data.append((x - galaxian.x) / 256.0)
-        else:
-          data.append(2)
-
-      for e in incoming_enemies:
-        dx = (e.x - galaxian.x) / 256.0
-        dy = (e.y - galaxian.y) / 200.0
-        data.append(dx)
-        data.append(dy)
-      for i in xrange(NUM_INCOMING_ENEMIES - len(incoming_enemies)):
-        data.append(2)
-        data.append(2)
-
-      for e in bullets:
-        dx = (e.x - galaxian.x) / 256.0
-        dy = (e.y - galaxian.y) / 200.0
-        data.append(dx)
-        data.append(dy)
-      for i in xrange(NUM_BULLETS - len(bullets)):
-        data.append(2)
-        data.append(2)
-
-      assert len(data) == INPUT_DIM, '%d vs %d' % (len(data), INPUT_DIM)
-      self.data = np.array(data)
+      data += OneHot(WIDTH, galaxian.x / DX)
+      self.data = data
     else:
       self.data = np.zeros((WIDTH, HEIGHT))
 
@@ -189,10 +158,10 @@ class Frame:
       for e in still_enemies:
         self.AddRect(e, 8, 12)
 
-      for e in incoming_enemies:
+      for e in self.incoming_enemies.values():
         self.AddRect(e, 8, 12)
 
-      for b in bullets:
+      for b in self.bullets.values():
         self.AddRect(b, 4, 12)
 
       self.data = cv2.resize(self.data, (SIDE, SIDE))
@@ -206,33 +175,49 @@ class Frame:
     else:
       return 1
 
-  def AddSnapshotsFromSelf(self):
+  def AddPrev(self, prev_frames):
     if not RAW_IMAGE:
-      self.datax = np.reshape(self.data, (INPUT_DIM, 1))
-      for i in xrange(NUM_SNAPSHOTS-1):
-        self.datax = np.append(
-            self.datax,
-            np.reshape(self.data, (INPUT_DIM, 1)),
-            axis = 1)
+      imap = [0.] * WIDTH
+      bmap = [0.] * WIDTH
+      if prev_frames:
+        prev = prev_frames[0]  # TODO: use furthest frame with same enemies/bullets
+        steps = len(prev_frames)
+        y = 206  # galaxian top y
+        for eid, e in self.incoming_enemies.iteritems():
+          if eid in prev.incoming_enemies:
+            pe = prev.incoming_enemies[eid]
+            if pe.y < e.y < y:
+              x = (e.x-pe.x)*1.0/(e.y-pe.y)*(y-pe.y)+pe.x
+              t = (y-e.y)*1.0/(e.y-pe.y)*steps
+              imap[max(0, min(WIDTH-1, int(round(x))/DX))] += max(0., 1.-t/24.)
+        for eid, e in self.bullets.iteritems():
+          if eid in prev.bullets:
+            pe = prev.bullets[eid]
+            if pe.y < e.y < y:
+              x = (e.x-pe.x)*1.0/(e.y-pe.y)*(y-pe.y)+pe.x
+              t = (y-e.y)*1.0/(e.y-pe.y)*steps
+              bmap[max(0, min(WIDTH-1, int(round(x))/DX))] += max(0., 1.-t/12.)
+      if not self.terminal:
+        ix = self.galaxian.x / DX
+        self.reward += max(0., 1. - imap[ix] - bmap[ix]) / 12.
+      self.data += imap
+      self.data += bmap
+      assert len(self.data) == INPUT_DIM
+      self.datax = np.array(self.data)
     else:
-      self.datax = np.reshape(self.data, (SIDE, SIDE, 1))
-      for i in xrange(NUM_SNAPSHOTS-1):
+      if not prev_frames:
+        self.datax = np.reshape(self.data, (SIDE, SIDE, 1))
+        for i in xrange(NUM_SNAPSHOTS-1):
+          self.datax = np.append(
+              self.datax,
+              np.reshape(self.data, (SIDE, SIDE, 1)),
+              axis = 2)
+      else:
+        prev_frame = prev_frames[-1]
         self.datax = np.append(
-            self.datax,
             np.reshape(self.data, (SIDE, SIDE, 1)),
+            prev_frame.datax[:, :, :NUM_SNAPSHOTS-1],
             axis = 2)
-
-  def AddSnapshotsFromPrev(self, prev_frame):
-    if not RAW_IMAGE:
-      self.datax = np.append(
-          np.reshape(self.data, (INPUT_DIM, 1)),
-          prev_frame.datax[:, :NUM_SNAPSHOTS-1],
-          axis = 1)
-    else:
-      self.datax = np.append(
-          np.reshape(self.data, (SIDE, SIDE, 1)),
-          prev_frame.datax[:, :, :NUM_SNAPSHOTS-1],
-          axis = 2)
 
   def NextToken(self):
     self._idx += 1
@@ -316,18 +301,13 @@ class NeuralNetwork:
     with tf.variable_scope(name):
       if not RAW_IMAGE:
         # Input.
-        self.input = tf.placeholder(tf.float32,
-            [None, INPUT_DIM, NUM_SNAPSHOTS])
+        self.input = tf.placeholder(tf.float32, [None, INPUT_DIM])
         print('input:', self.input.get_shape())
 
-        # Flatten input.
-        INPUT_FLAT_DIM = INPUT_DIM * NUM_SNAPSHOTS
-        input_flat = tf.reshape(self.input, [-1, INPUT_FLAT_DIM])
-
         # Fully connected 1.
-        self.w1 = var([INPUT_FLAT_DIM, 16])
+        self.w1 = var([INPUT_DIM, 16])
         self.b1 = var([16])
-        fc1 = tf.nn.relu(tf.matmul(input_flat, self.w1) + self.b1)
+        fc1 = tf.nn.relu(tf.matmul(self.input, self.w1) + self.b1)
 
         # Fully connected 2.
         self.w2 = var([16, 8])
@@ -450,8 +430,9 @@ def Run():
   nn = NeuralNetwork('nn')
   tnn = NeuralNetwork('tnn', trainable=False)
   game = Game()
+  prev_frames = deque()
   frame = game.Step('_')
-  frame.AddSnapshotsFromSelf()
+  frame.AddPrev(prev_frames)
 
   with tf.Session() as sess:
     sess.run(tf.global_variables_initializer())
@@ -481,8 +462,7 @@ def Run():
         action = ACTION_NAMES[np.argmax(q_val)]
 
       frame1 = game.Step(action)
-
-      frame1.AddSnapshotsFromPrev(frame)
+      frame1.AddPrev(prev_frames)
 
       action_val = np.zeros([OUTPUT_DIM], dtype=np.int)
       action_val[frame1.action_id] = 1
@@ -495,6 +475,10 @@ def Run():
         memoryx.append((frame, action_val, frame1))
         if len(memoryx) > REPLAY_MEMORY:
           memoryx.popleft()
+
+      prev_frames.append(frame1)
+      if len(prev_frames) > 4:
+        prev_frames.popleft()
 
       if steps % TRAIN_INTERVAL == 0 and steps > OBSERVE_STEPS:
         mini_batch = random.sample(memory, min(len(memory), MINI_BATCH_SIZE))
@@ -518,7 +502,7 @@ def Run():
                                global_step = steps)
         print("Saved to", save_path)
 
-      print("Step %d epsilon: %.6f nn: %s q: %-33s action: %s reward: %2.0f "
+      print("Step %d epsilon: %.6f nn: %s q: %-33s action: %s reward: %5.2f "
           "cost: %8.3f y: %8.3f" %
           (steps, epsilon, FormatList(nn.CheckSum()), FormatList(q_val),
             frame1.action, frame1.reward, cost, y_val))

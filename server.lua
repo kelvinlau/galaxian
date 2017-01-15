@@ -37,11 +37,13 @@ function Respond(client, seq, g, action, reward, terminal)
   end
   Append(#g.incoming_enemies)
   for _, e in pairs(g.incoming_enemies) do
+    Append(e.id)
     Append(e.x)
     Append(e.y)
   end
   Append(#g.bullets)
   for _, e in pairs(g.bullets) do
+    Append(e.id)
     Append(e.x)
     Append(e.y)
   end
@@ -120,6 +122,8 @@ emu.print("Running Galaxian server")
 Reset()
 INIT_STATE = savestate.create(9)
 savestate.save(INIT_STATE)
+RELOAD_STATE = savestate.create(8)
+savestate.save(RELOAD_STATE)
 
 human_play = false
 max_score = 0
@@ -159,6 +163,7 @@ handles[dialogs] = iup.dialog{iup.vbox{
     action=
       function (self)
         savestate.save(INIT_STATE)
+        savestate.save(RELOAD_STATE)
       end
   },
   iup.button{
@@ -167,6 +172,7 @@ handles[dialogs] = iup.dialog{iup.vbox{
       function (self)
         Reset()
         savestate.save(INIT_STATE)
+        savestate.save(RELOAD_STATE)
       end
   },
   margin="20x20"},
@@ -188,6 +194,10 @@ local recent_games = {}
 local reward_sum = 0
 
 while true do
+  if math.random() < 0.01 then
+    savestate.save(RELOAD_STATE)
+  end
+
   local control = nil
   local seq = nil
   control, seq = ReadControl(client)
@@ -197,9 +207,8 @@ while true do
 
   -- Advance 5 frames. If dead, start over.
   for i = 1, 5 do
-    local rg = {}
-    rg[0] = GetGame()
-    Show(rg)
+    recent_games[0] = GetGame()
+    Show(recent_games)
     ShowScore(reward_sum, max_score)
     if human_play and i == 1 then
       joypad.set(1, {})
@@ -250,7 +259,11 @@ while true do
   max_score = math.max(max_score, reward_sum)
 
   if terminal then
-    savestate.load(INIT_STATE)
+    if math.random() < 0.1 then
+      savestate.load(INIT_STATE)
+    else
+      savestate.load(RELOAD_STATE)
+    end
     reward_sum = 0
     recent_games = {}
   end
