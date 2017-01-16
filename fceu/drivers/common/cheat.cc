@@ -20,8 +20,8 @@
 
 #include <stdio.h>
 #include <ctype.h>
-#include "fceu/../driver.h"
-#include "fceu/../fceu.h"
+#include "fceu/driver.h"
+#include "fceu/fceu.h"
 
 static void GetString(char *s, int max)
 {

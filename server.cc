@@ -15,6 +15,9 @@
 #include "emulator.h"
 #include "galaxian.h"
 
+using std::cerr;
+using std::cout;
+
 int64 Now() {
   struct timeval tv;
   gettimeofday(&tv, NULL);

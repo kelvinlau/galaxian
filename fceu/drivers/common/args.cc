@@ -30,8 +30,8 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "fceu/../types.h"
-#include "fceu/args.h"
+#include "fceu/types.h"
+#include "fceu/drivers/common/args.h"
 
 int ParseEA(int x, int argc, char *argv[], ARGPSTRUCT *argsps)
 {

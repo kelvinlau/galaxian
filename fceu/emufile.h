@@ -40,6 +40,10 @@ THE SOFTWARE.
 #include <io.h>
 #endif
 
+#ifdef STD_STRING
+using std::string;
+#endif
+
 class EMUFILE {
 protected:
         bool failbit;

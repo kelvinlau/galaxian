@@ -26,7 +26,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdarg.h>
-#include "third_party/zlib/v1_2_8/zlib.h"
+
+#include "zlib.h"
 
 #include "fceu/types.h"
 #include "fceu/video.h"

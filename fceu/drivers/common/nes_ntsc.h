@@ -4,7 +4,7 @@
 #ifndef NES_NTSC_H
 #define NES_NTSC_H
 
-#include "fceu/nes_ntsc_config.h"
+#include "fceu/drivers/common/nes_ntsc_config.h"
 
 #ifdef __cplusplus
 	extern "C" {

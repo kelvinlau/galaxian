@@ -16,7 +16,11 @@
 #include "fceu/sound.h"
 
 #include "base/logging.h"
-#include "third_party/cityhash/city.h"
+#include "city.h"
+
+#ifdef CITY_NAMESPACE
+using util_hash::CityHash64WithSeed;
+#endif
 
 using std::pair;
 using std::unordered_map;
@@ -39,8 +43,8 @@ struct StateCache {
   struct HashFunction {
     size_t operator ()(const Key &k) const {
       CHECK(k.second);
-      return third_party_cityhash::CityHash64WithSeed(
-          (const char *)&(k.second->at(0)), k.second->size(), k.first);
+      return CityHash64WithSeed((const char *)&(k.second->at(0)),
+                                k.second->size(), k.first);
     }
   };
 

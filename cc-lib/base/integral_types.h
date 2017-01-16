@@ -31,7 +31,7 @@ typedef int                 int32;
 #ifdef COMPILER_MSVC
 typedef __int64             int64;
 #else
-typedef int64_t           int64;
+typedef long long           int64;
 #endif /* COMPILER_MSVC */
 
 // NOTE: unsigned types are DANGEROUS in loops and other arithmetical
@@ -46,7 +46,7 @@ typedef unsigned int       uint32;
 #ifdef COMPILER_MSVC
 typedef unsigned __int64   uint64;
 #else
-typedef uint64_t uint64;
+typedef unsigned long long uint64;
 #endif /* COMPILER_MSVC */
 
 // A type to represent a Unicode code-point value. As of Unicode 4.0,

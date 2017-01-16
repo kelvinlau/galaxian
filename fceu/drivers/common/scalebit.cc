@@ -37,8 +37,8 @@
 #include <config.h>
 #endif
 
-#include "fceu/scale2x.h"
-#include "fceu/scale3x.h"
+#include "fceu/drivers/common/scale2x.h"
+#include "fceu/drivers/common/scale3x.h"
 
 #if HAVE_ALLOCA_H
 #include <alloca.h>

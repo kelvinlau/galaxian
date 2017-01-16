@@ -21,7 +21,7 @@
 #include <string.h>
 #include <stdlib.h>
 
-#include "fceu/hq2x.h"
+#include "fceu/drivers/common/hq2x.h"
 
 static int *LUT16to32=NULL;
 static int *RGBtoYUV=NULL;

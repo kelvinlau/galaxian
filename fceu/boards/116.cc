@@ -34,7 +34,6 @@
  */
 
 #include "fceu/boards/mapinc.h"
-#include "base/macros.h"
 
 static uint8 mode;
 static uint8 vrc2_chr[8], vrc2_prg[2], vrc2_mirr;
@@ -272,9 +271,7 @@ static DECLFW(UNLSL12Write)
          mmc1_buffer = mmc1_shift = 0;
          switch(n) {
           case 0: SyncMIR();
-                  FALLTHROUGH_INTENDED;
           case 2: SyncCHR();
-                  FALLTHROUGH_INTENDED;
           case 3:
           case 1: SyncPRG();
          }

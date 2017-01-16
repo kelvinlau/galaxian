@@ -26,7 +26,7 @@
 #include <sys/stat.h>
 //#include <unistd.h> //mbg merge 7/17/06 removed
 
-#include "third_party/zlib/v1_2_8/zlib.h"
+#include "zlib.h"
 
 #include "fceu/types.h"
 #include "fceu/file.h"

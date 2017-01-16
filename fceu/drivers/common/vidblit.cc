@@ -19,13 +19,13 @@
  */
 
 #include <stdlib.h>
-#include "fceu/scalebit.h"
-#include "fceu/hq2x.h"
-#include "fceu/hq3x.h"
+#include "fceu/drivers/common/scalebit.h"
+#include "fceu/drivers/common/hq2x.h"
+#include "fceu/drivers/common/hq3x.h"
 
-#include "fceu/../types.h"
-#include "fceu/../utils/memory.h"
-#include "fceu/nes_ntsc.h"
+#include "fceu/types.h"
+#include "fceu/utils/memory.h"
+#include "fceu/drivers/common/nes_ntsc.h"
 
 nes_ntsc_t* nes_ntsc;
 uint8 burst_phase = 0;

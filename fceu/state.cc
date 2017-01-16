@@ -44,9 +44,8 @@
 #include "fceu/netplay.h"
 #include "fceu/video.h"
 #include "fceu/input.h"
-//#include "fceu/zlib.h"
-#include "third_party/zlib/v1_2_8/zlib.h"
 #include "fceu/driver.h"
+#include "zlib.h"
 
 static void (*SPreSave)(void);
 static void (*SPostSave)(void);

@@ -32,8 +32,8 @@
  * - derivative works of the program are allowed.
  */
 
-#include "fceu/../types.h" //mbg merge 7/17/06 added to get rid of __restrict__ in msvc
-#include "fceu/scale2x.h"
+#include "fceu/types.h" //mbg merge 7/17/06 added to get rid of __restrict__ in msvc
+#include "fceu/drivers/common/scale2x.h"
 
 #include <assert.h>
 

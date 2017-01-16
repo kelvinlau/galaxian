@@ -19,7 +19,6 @@
  */
 
 #include "fceu/boards/mapinc.h"
-#include "base/macros.h"
 
 static uint8 mode, bank, reg[11], low[4], dip, IRQa;
 static int32 IRQCount;
@@ -128,7 +127,6 @@ static DECLFW(M83Write)
   switch(A)
   {
     case 0x8000: is2kbank = 1;
-                 FALLTHROUGH_INTENDED;
     case 0xB000:                                          // Dragon Ball Z Party [p1] BMC
     case 0xB0FF:                                          // Dragon Ball Z Party [p1] BMC
     case 0xB1FF: bank=V; mode |= 0x40; M83Sync(); break;  // Dragon Ball Z Party [p1] BMC

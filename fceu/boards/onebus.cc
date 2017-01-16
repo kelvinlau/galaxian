@@ -26,7 +26,6 @@
  */
 
 #include "fceu/boards/mapinc.h"
-#include "base/macros.h"
 
 // General Purpose Registers
 static uint8 cpu410x[16], ppu201x[16], apu40xx[64];
@@ -204,13 +203,11 @@ static DECLFW(UNLOneBusWriteAPU40XX)
     {
       pcm_addr = V << 6;
     }
-    FALLTHROUGH_INTENDED;
   case 0x13:
     if(apu40xx[0x30] & 0x10)
     {
       pcm_size = (V << 4) + 1;
     }
-    FALLTHROUGH_INTENDED;
   case 0x15:
     if(apu40xx[0x30] & 0x10)
     {

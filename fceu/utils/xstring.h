@@ -36,6 +36,10 @@
 #define STRIP_CR        0x04 // carriage return
 #define STRIP_LF        0x08 // line feed
 
+#ifdef STD_STRING
+using std::string;
+#endif
+
 
 int str_ucase(char *str);
 int str_lcase(char *str);
