@@ -52,6 +52,8 @@ namespace galaxian {
 
 class Server {
  public:
+  explicit Server(int port) : port_(port) {}
+
   void Loop() {
     cout << "Running Galaxian server\n";
     cout.flush();
@@ -119,7 +121,7 @@ class Server {
     sockaddr_in sin;
     sin.sin_addr.s_addr = htonl(INADDR_ANY);
     sin.sin_family = AF_INET;
-    sin.sin_port = htons(62343);
+    sin.sin_port = htons(port_);
     sockfd_ = socket(AF_INET, SOCK_STREAM, 0);
     if (sockfd_ == -1) {
       cerr << "INVALID socket\n";
@@ -202,6 +204,7 @@ class Server {
     buffer_.clear();
   }
 
+  const int port_;
   int sockfd_;
   string buffer_;
 };
@@ -213,7 +216,8 @@ int main(int argc, char *argv[]) {
 
   Emulator::Initialize("galaxian.nes");
 
-  galaxian::Server server;
+  const int port = argc > 1 ? atoi(argv[1]) : 62343;
+  galaxian::Server server(port);
   server.Loop();
 
   Emulator::Shutdown();

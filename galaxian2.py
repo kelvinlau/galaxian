@@ -14,6 +14,7 @@ TODO: Training the model only on score increases.
 from __future__ import print_function
 from collections import defaultdict
 from collections import deque
+from optparse import OptionParser
 import os
 import random
 import time
@@ -22,6 +23,13 @@ import socket
 import cv2
 import numpy as np
 import tensorflow as tf
+
+
+parser = OptionParser()
+parser.add_option('--port', default=62343, help='server port to connect')
+parser.add_option('--play', action='store_true', default=False,
+                  help='play instead of train')
+options, args = parser.parse_args()
 
 
 # Game input/output.
@@ -47,19 +55,16 @@ ACTION_ID = {ACTION_NAMES[i]: i for i in xrange(len(ACTION_NAMES))}
 OUTPUT_DIM = len(ACTION_NAMES)  # TODO(kelvinlau): 6?
 
 # Hyperparameters.
+DOUBLE_Q = True
 GAMMA = 0.99
-INITIAL_EPSILON = 1.0
-FINAL_EPSILON = 0.1
+FINAL_EPSILON = 0.01 if DOUBLE_Q else 0.1
+INITIAL_EPSILON = FINAL_EPSILON if options.play else 1.0
 EXPLORE_STEPS = 1000000
 OBSERVE_STEPS = 5000
 REPLAY_MEMORY = 100000 if not RAW_IMAGE else 2000  # 2000 = ~6G memory
 MINI_BATCH_SIZE = 32
 TRAIN_INTERVAL = 1
 UPDATE_TARGET_NETWORK_INTERVAL = 10000
-
-DOUBLE_Q = True
-if DOUBLE_Q:
-  FINAL_EPSILON = 0.01
 
 # Checkpoint.
 CHECKPOINT_DIR = 'galaxian2n/'
@@ -312,7 +317,7 @@ class Frame:
 class Game:
   def __init__(self):
     self._sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    self._sock.connect(('localhost', 62343))
+    self._sock.connect(('localhost', options.port))
     self._fin = self._sock.makefile()
     self._seq = 0
 
