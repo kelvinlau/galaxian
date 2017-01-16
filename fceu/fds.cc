@@ -22,20 +22,20 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "types.h"
-#include "x6502.h"
-#include "fceu.h"
-#include "fds.h"
-#include "sound.h"
-#include "file.h"
-#include "utils/md5.h"
-#include "utils/memory.h"
-#include "state.h"
-#include "file.h"
-#include "cart.h"
-#include "netplay.h"
-#include "driver.h"
-#include "movie.h"
+#include "fceu/types.h"
+#include "fceu/x6502.h"
+#include "fceu/fceu.h"
+#include "fceu/fds.h"
+#include "fceu/sound.h"
+#include "fceu/file.h"
+#include "fceu/utils/md5.h"
+#include "fceu/utils/memory.h"
+#include "fceu/state.h"
+#include "fceu/file.h"
+#include "fceu/cart.h"
+#include "fceu/netplay.h"
+#include "fceu/driver.h"
+#include "fceu/movie.h"
 
 //  TODO:  Add code to put a delay in between the time a disk is inserted
 //	and the when it can be successfully read/written to.  This should
@@ -93,6 +93,7 @@ void FDSGI(GI h)
 	{
 	case GI_CLOSE: FDSClose();break;
 	case GI_POWER: FDSInit();break;
+        default: break;
 	}
 }
 
@@ -893,7 +894,7 @@ void FDSClose(void)
 
 	if(!DiskWritten) return;
 
-	const std::string &fn = FCEU_MakeFName(FCEUMKF_FDS,0,0);
+	const string &fn = FCEU_MakeFName(FCEUMKF_FDS,0,0);
 	if(!(fp=FCEUD_UTF8fopen(fn.c_str(),"wb")))
 	{
 		return;

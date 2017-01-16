@@ -12,3 +12,4 @@ server
 *.fm2
 *.o
 auxlib.lua
+**/BUILD

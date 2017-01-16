@@ -31,26 +31,24 @@
 #include <zlib.h>
 #endif
 
-#include "types.h"
-#include "file.h"
-#include "utils/endian.h"
-#include "utils/memory.h"
-#include "utils/md5.h"
+#include "fceu/types.h"
+#include "fceu/file.h"
+#include "fceu/utils/endian.h"
+#include "fceu/utils/memory.h"
+#include "fceu/utils/md5.h"
 #ifndef NOUNZIP
-  #include "utils/unzip.h"
+  #include "fceu/utils/unzip.h"
 #endif
-#include "driver.h"
-#include "types.h"
-#include "fceu.h"
-#include "state.h"
-#include "movie.h"
-#include "driver.h"
-#include "utils/xstring.h"
-
-using namespace std;
+#include "fceu/driver.h"
+#include "fceu/types.h"
+#include "fceu/fceu.h"
+#include "fceu/state.h"
+#include "fceu/movie.h"
+#include "fceu/driver.h"
+#include "fceu/utils/xstring.h"
 
 bool bindSavestate = true;	//Toggle that determines if a savestate filename will include the movie filename
-static std::string BaseDirectory;
+static string BaseDirectory;
 static char FileExt[2048];	//Includes the . character, as in ".nes"
 char FileBase[2048];
 static char FileBaseDirectory[2048];
@@ -144,16 +142,16 @@ end:
 	fp->SetStream(ms);
 }
 
-std::string FCEU_MakeIpsFilename(FileBaseInfo fbi) {
+string FCEU_MakeIpsFilename(FileBaseInfo fbi) {
 	char ret[FILENAME_MAX] = "";
 	sprintf(ret,"%s" PSS "%s%s.ips",fbi.filebasedirectory.c_str(),fbi.filebase.c_str(),fbi.ext.c_str());
 	return ret;
 }
 
-void FCEU_SplitArchiveFilename(std::string src, std::string& archive, std::string& file, std::string& fileToOpen)
+void FCEU_SplitArchiveFilename(string src, string& archive, string& file, string& fileToOpen)
 {
 	size_t pipe = src.find_first_of('|');
-	if(pipe == std::string::npos)
+	if(pipe == string::npos)
 	{
 		archive = "";
 		file = src;
@@ -178,13 +176,13 @@ FileBaseInfo DetermineFileBase(const char *f) {
 
         if(dir[0] == 0) strcpy(dir,".");
 
-	return FileBaseInfo((std::string)drv + dir,name,ext);
+	return FileBaseInfo((string)drv + dir,name,ext);
 
 }
 
-inline FileBaseInfo DetermineFileBase(const std::string& str) { return DetermineFileBase(str.c_str()); }
+inline FileBaseInfo DetermineFileBase(const string& str) { return DetermineFileBase(str.c_str()); }
 
-static FCEUFILE * TryUnzip(const std::string& path) {
+static FCEUFILE * TryUnzip(const string& path) {
 #ifdef NOUNZIP
   return 0;
 #else
@@ -263,15 +261,15 @@ FCEUFILE * FCEU_fopen(const char *path, const char *ipsfn, char *mode, char *ext
 	FILE *ipsfile=0;
 	FCEUFILE *fceufp=0;
 
-	bool read = (std::string)mode == "rb";
-	bool write = (std::string)mode == "wb";
+	bool read = (string)mode == "rb";
+	bool write = (string)mode == "wb";
 	if((read&&write) || (!read&&!write))
 	{
 		FCEU_PrintError("invalid file open mode specified (only wb and rb are supported)");
 		return 0;
 	}
 
-	std::string archive,fname,fileToOpen;
+	string archive,fname,fileToOpen;
 	FCEU_SplitArchiveFilename(path,archive,fname,fileToOpen);
 
 
@@ -438,21 +436,21 @@ int FCEU_fisarchive(FCEUFILE *fp)
 	else return 1;
 }
 
-std::string GetMfn() //Retrieves the movie filename from curMovieFilename (for adding to savestate and auto-save files)
+string GetMfn() //Retrieves the movie filename from curMovieFilename (for adding to savestate and auto-save files)
 {
-	std::string movieFilenamePart;
+	string movieFilenamePart;
 	extern char curMovieFilename[512];
 	if(*curMovieFilename)
 		{
 		char drv[PATH_MAX], dir[PATH_MAX], name[PATH_MAX], ext[PATH_MAX];
 		splitpath(curMovieFilename,drv,dir,name,ext);
-		movieFilenamePart = std::string(".") + name;
+		movieFilenamePart = string(".") + name;
 		}
 	return movieFilenamePart;
 }
 
 /// Updates the base directory
-void FCEUI_SetBaseDirectory(std::string const & dir)
+void FCEUI_SetBaseDirectory(string const & dir)
 {
 	BaseDirectory = dir;
 }
@@ -468,7 +466,7 @@ void FCEUI_SetDirOverride(int which, char *n)
 	}
 }
 
-	#ifndef HAVE_ASPRINTF
+	#if 0
 	static int asprintf(char **strp, const char *fmt, ...)
 	{
 		va_list ap;
@@ -483,7 +481,7 @@ void FCEUI_SetDirOverride(int which, char *n)
 	}
 	#endif
 
-std::string  FCEU_GetPath(int type)
+string  FCEU_GetPath(int type)
 {
 	char ret[FILENAME_MAX];
 	switch(type)
@@ -547,7 +545,7 @@ std::string  FCEU_GetPath(int type)
 	return ret;
 }
 
-std::string FCEU_MakePath(int type, const char* filebase)
+string FCEU_MakePath(int type, const char* filebase)
 {
 	char ret[FILENAME_MAX];
 
@@ -569,11 +567,11 @@ std::string FCEU_MakePath(int type, const char* filebase)
 	return ret;
 }
 
-std::string FCEU_MakeFName(int type, int id1, const char *cd1)
+string FCEU_MakeFName(int type, int id1, const char *cd1)
 {
 	char ret[FILENAME_MAX] = "";
 	struct stat tmpstat;
-	std::string mfnString;
+	string mfnString;
 	const char* mfn;	// the movie filename
 
 	switch(type)
@@ -737,7 +735,7 @@ void FCEUARCHIVEFILEINFO::FilterByExtension(const char** ext)
 	if(!ext) return;
 	int count = size();
 	for(int i=count-1;i>=0;i--) {
-		std::string fext = getExtension((*this)[i].name.c_str());
+		string fext = getExtension((*this)[i].name.c_str());
 		const char** currext = ext;
 		while(*currext) {
 			if(fext == *currext)

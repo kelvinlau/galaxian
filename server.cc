@@ -10,9 +10,8 @@
 #include <sys/types.h>
 #include <netinet/in.h>
 
-#include "cc-lib/base/logging.h"
-#include "cc-lib/base/stringprintf.h"
-#include "simplefm2.h"
+#include "base/logging.h"
+#include "base/stringprintf.h"
 #include "emulator.h"
 #include "galaxian.h"
 
@@ -105,7 +104,7 @@ class Server {
       max_score = std::max(max_score, s.score);
 
       if (terminal) {
-        Emulator::Load(random() < 0.1 ? &beginning : &reload);
+        Emulator::Load(random() < 0.05 ? &beginning : &reload);
         cout << NowStr() << " Step " << step << " Max score: " << max_score
              << " Score: " << s.score << "\n";
       }

@@ -21,10 +21,12 @@ THE SOFTWARE.
 */
 
 #include <vector>
-#include "emufile.h"
-#include "utils/xstring.h"
+#include <unistd.h>
+#include "fceu/emufile.h"
+#include "fceu/types-des.h"
+#include "fceu/utils/xstring.h"
 
-bool EMUFILE::readAllBytes(std::vector<u8>* dstbuf, const std::string& fname)
+bool EMUFILE::readAllBytes(std::vector<u8>* dstbuf, const string& fname)
 {
 	EMUFILE_FILE file(fname.c_str(),"rb");
 	if(file.fail()) return false;
@@ -65,8 +67,8 @@ void EMUFILE_FILE::open(const char* fname, const char* mode)
 	if(!fp)
 	{
 #ifdef _MSC_VER
-		std::wstring wfname = mbstowcs((std::string)fname);
-		std::wstring wfmode = mbstowcs((std::string)mode);
+		std::wstring wfname = mbstowcs((string)fname);
+		std::wstring wfmode = mbstowcs((string)mode);
 		fp = _wfopen(wfname.c_str(),wfmode.c_str());
 #endif
 		if(!fp)
@@ -131,7 +133,7 @@ void EMUFILE::write64le(u64 val)
 
 size_t EMUFILE::read64le(u64 *Bufo)
 {
-	u64 buf;
+	u64 buf=0;
 	if(fread((char*)&buf,8) != 8)
 		return 0;
 #ifndef LOCAL_BE
@@ -172,7 +174,7 @@ size_t EMUFILE::read32le(s32* Bufo) { return read32le((u32*)Bufo); }
 
 size_t EMUFILE::read32le(u32* Bufo)
 {
-	u32 buf;
+	u32 buf = 0;
 	if(fread(&buf,4)<4)
 		return 0;
 #ifndef LOCAL_BE
@@ -211,7 +213,7 @@ size_t EMUFILE::read16le(s16* Bufo) { return read16le((u16*)Bufo); }
 
 size_t EMUFILE::read16le(u16* Bufo)
 {
-	u32 buf;
+	u32 buf=0;
 	if(fread(&buf,2)<2)
 		return 0;
 #ifndef LOCAL_BE
@@ -247,7 +249,7 @@ size_t EMUFILE::read8le(u8* val)
 
 u8 EMUFILE::read8le()
 {
-	u8 temp;
+	u8 temp=0;
 	fread(&temp,1);
 	return temp;
 }

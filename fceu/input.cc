@@ -23,36 +23,36 @@
 #include <ostream>
 #include <string.h>
 
-#include "types.h"
-#include "x6502.h"
+#include "fceu/types.h"
+#include "fceu/x6502.h"
 
-#include "fceu.h"
-#include "sound.h"
-#include "netplay.h"
-#include "movie.h"
-#include "state.h"
-#include "input/zapper.h"
+#include "fceu/fceu.h"
+#include "fceu/sound.h"
+#include "fceu/netplay.h"
+#include "fceu/movie.h"
+#include "fceu/state.h"
+#include "fceu/input/zapper.h"
 #ifdef _S9XLUA_H
-#include "fceulua.h"
+#include "fceu/fceulua.h"
 #endif
-#include "input.h"
-#include "vsuni.h"
-#include "fds.h"
-#include "driver.h"
+#include "fceu/input.h"
+#include "fceu/vsuni.h"
+#include "fceu/fds.h"
+#include "fceu/driver.h"
 
 #ifdef WIN32
 #ifndef NOWINSTUFF
-#include "drivers/win/main.h"
-#include "drivers/win/memwatch.h"
-#include "drivers/win/cheat.h"
-#include "drivers/win/debugger.h"
-#include "drivers/win/ppuview.h"
-#include "drivers/win/cdlogger.h"
-#include "drivers/win/tracer.h"
-#include "drivers/win/memview.h"
-#include "drivers/win/window.h"
-#include "drivers/win/ntview.h"
-#include "drivers/win/taseditor.h"
+#include "fceu/drivers/win/main.h"
+#include "fceu/drivers/win/memwatch.h"
+#include "fceu/drivers/win/cheat.h"
+#include "fceu/drivers/win/debugger.h"
+#include "fceu/drivers/win/ppuview.h"
+#include "fceu/drivers/win/cdlogger.h"
+#include "fceu/drivers/win/tracer.h"
+#include "fceu/drivers/win/memview.h"
+#include "fceu/drivers/win/window.h"
+#include "fceu/drivers/win/ntview.h"
+#include "fceu/drivers/win/taseditor.h"
 extern bool Taseditor_rewind_now;
 #endif
 #endif // WIN32

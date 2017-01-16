@@ -19,16 +19,16 @@
  */
 
 #include <string.h>
-#include "types.h"
-#include "x6502.h"
-#include "fceu.h"
-#include "debug.h"
-#include "sound.h"
+#include "fceu/types.h"
+#include "fceu/x6502.h"
+#include "fceu/fceu.h"
+#include "fceu/debug.h"
+#include "fceu/sound.h"
 #ifdef _S9XLUA_H
-#include "fceulua.h"
+#include "fceu/fceulua.h"
 #endif
 
-#include "x6502abbrev.h"
+#include "fceu/x6502abbrev.h"
 X6502 X;
 uint32 timestamp;
 void (*MapIRQHook)(int a);
@@ -497,7 +497,7 @@ extern int test; test++;
    _PC++;
    switch(b1)
    {
-    #include "ops.inc"
+    #include "fceu/ops.inc"
    }
   }
 }

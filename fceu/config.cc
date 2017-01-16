@@ -5,11 +5,11 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-#include "types.h"
-#include "version.h"
-#include "fceu.h"
-#include "driver.h"
-#include "utils/memory.h"
+#include "fceu/types.h"
+#include "fceu/version.h"
+#include "fceu/fceu.h"
+#include "fceu/driver.h"
+#include "fceu/utils/memory.h"
 
 static char *aboutString = 0;
 

@@ -24,14 +24,14 @@
 #include <stdio.h>
 #include <ctype.h>
 
-#include "types.h"
-#include "x6502.h"
-#include "cheat.h"
-#include "fceu.h"
-#include "file.h"
-#include "cart.h"
-#include "driver.h"
-#include "utils/memory.h"
+#include "fceu/types.h"
+#include "fceu/x6502.h"
+#include "fceu/cheat.h"
+#include "fceu/fceu.h"
+#include "fceu/file.h"
+#include "fceu/cart.h"
+#include "fceu/driver.h"
+#include "fceu/utils/memory.h"
 
 using namespace std;
 
@@ -216,7 +216,7 @@ void FCEU_LoadGameCheats(FILE *override)
 
 	FCEU_DispMessage("Cheats file loaded.",0); //Tells user a cheats file was loaded.
 	FCEU_printf("Cheats file loaded.\n",0);	 //Sends message to message log.
-	while(fgets(linebuf,2048,fp)>0)
+	while(fgets(linebuf,2048,fp))
 	{
 		char *tbuf=linebuf;
 		int doc=0;

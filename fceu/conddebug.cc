@@ -45,9 +45,9 @@
 #include <assert.h>
 #include <ctype.h>
 
-#include "conddebug.h"
-#include "types.h"
-#include "utils/memory.h"
+#include "fceu/conddebug.h"
+#include "fceu/types.h"
+#include "fceu/utils/memory.h"
 
 // Next non-whitespace character in string
 char next;

@@ -27,18 +27,18 @@
 #include <string.h>
 
 
-#include "types.h"
-#include "fceu.h"
-#include "cart.h"
-#include "unif.h"
-#include "ines.h"
-#include "utils/endian.h"
-#include "utils/memory.h"
-#include "utils/md5.h"
-#include "state.h"
-#include "file.h"
-#include "input.h"
-#include "driver.h"
+#include "fceu/types.h"
+#include "fceu/fceu.h"
+#include "fceu/cart.h"
+#include "fceu/unif.h"
+#include "fceu/ines.h"
+#include "fceu/utils/endian.h"
+#include "fceu/utils/memory.h"
+#include "fceu/utils/md5.h"
+#include "fceu/state.h"
+#include "fceu/file.h"
+#include "fceu/input.h"
+#include "fceu/driver.h"
 
 typedef struct {
 	char ID[4];

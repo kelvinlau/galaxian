@@ -23,15 +23,15 @@
 
 #include <string.h>
 
-#include "types.h"
-#include "x6502.h"
+#include "fceu/types.h"
+#include "fceu/x6502.h"
 
-#include "fceu.h"
-#include "sound.h"
-#include "filter.h"
-#include "state.h"
-#include "wave.h"
-#include "debug.h"
+#include "fceu/fceu.h"
+#include "fceu/sound.h"
+#include "fceu/filter.h"
+#include "fceu/state.h"
+#include "fceu/wave.h"
+#include "fceu/debug.h"
 
 static uint32 wlookup1[32];
 static uint32 wlookup2[203];

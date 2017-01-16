@@ -1,12 +1,12 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-#include "types.h"
-#include "fceu.h"
+#include "fceu/types.h"
+#include "fceu/fceu.h"
 
-#include "driver.h"
-#include "sound.h"
-#include "wave.h"
+#include "fceu/driver.h"
+#include "fceu/sound.h"
+#include "fceu/wave.h"
 
 static FILE *soundlog=0;
 static long wsize;

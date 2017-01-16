@@ -4,16 +4,16 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "types.h"
-#include "x6502.h"
-#include "fceu.h"
-#include "cart.h"
-#include "ines.h"
-#include "debug.h"
-#include "driver.h"
-#include "ppu.h"
+#include "fceu/types.h"
+#include "fceu/x6502.h"
+#include "fceu/fceu.h"
+#include "fceu/cart.h"
+#include "fceu/ines.h"
+#include "fceu/debug.h"
+#include "fceu/driver.h"
+#include "fceu/ppu.h"
 
-#include "x6502abbrev.h"
+#include "fceu/x6502abbrev.h"
 
 int vblankScanLines = 0;	//Used to calculate scanlines 240-261 (vblank)
 int vblankPixel = 0;		//Used to calculate the pixels in vblank

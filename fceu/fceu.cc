@@ -24,35 +24,35 @@
 #include <stdlib.h>
 #include <stdarg.h>
 #include <time.h>
-#include "types.h"
-#include "x6502.h"
-#include "fceu.h"
-#include "ppu.h"
-#include "sound.h"
-#include "netplay.h"
-#include "file.h"
-#include "utils/endian.h"
-#include "utils/memory.h"
-#include "utils/crc32.h"
+#include "fceu/types.h"
+#include "fceu/x6502.h"
+#include "fceu/fceu.h"
+#include "fceu/ppu.h"
+#include "fceu/sound.h"
+#include "fceu/netplay.h"
+#include "fceu/file.h"
+#include "fceu/utils/endian.h"
+#include "fceu/utils/memory.h"
+#include "fceu/utils/crc32.h"
 
-#include "cart.h"
-#include "nsf.h"
-#include "fds.h"
-#include "ines.h"
-#include "unif.h"
-#include "cheat.h"
-#include "palette.h"
-#include "state.h"
-#include "movie.h"
-#include "video.h"
-#include "input.h"
-#include "file.h"
-#include "vsuni.h"
-#include "ines.h"
+#include "fceu/cart.h"
+#include "fceu/nsf.h"
+#include "fceu/fds.h"
+#include "fceu/ines.h"
+#include "fceu/unif.h"
+#include "fceu/cheat.h"
+#include "fceu/palette.h"
+#include "fceu/state.h"
+#include "fceu/movie.h"
+#include "fceu/video.h"
+#include "fceu/input.h"
+#include "fceu/file.h"
+#include "fceu/vsuni.h"
+#include "fceu/ines.h"
 
 #ifdef WIN32
 #ifndef NOWINSTUFF
-#include "drivers/win/pref.h"
+#include "fceu/drivers/win/pref.h"
 
 extern void ResetDebugStatisticsCounters();
 
@@ -64,31 +64,33 @@ extern bool TaseditorIsRecording();
 #include <sstream>
 
 #ifdef _S9XLUA_H
-#include "fceulua.h"
+#include "fceu/fceulua.h"
 #endif
+
+#define DUMMY_UI 1
 
 //TODO - we really need some kind of global platform-specific options api
 #if defined(WIN32) && !defined(NOWINSTUFF)
-#include "drivers/win/main.h"
-#include "drivers/win/cheat.h"
-#include "drivers/win/texthook.h"
-#include "drivers/win/ram_search.h"
-#include "drivers/win/ramwatch.h"
-#include "drivers/win/memwatch.h"
-#include "drivers/win/tracer.h"
+#include "fceu/drivers/win/main.h"
+#include "fceu/drivers/win/cheat.h"
+#include "fceu/drivers/win/texthook.h"
+#include "fceu/drivers/win/ram_search.h"
+#include "fceu/drivers/win/ramwatch.h"
+#include "fceu/drivers/win/memwatch.h"
+#include "fceu/drivers/win/tracer.h"
 
 // tom7
 #elif defined(DUMMY_UI)
 
 // driver provided via abstract interface.
 #if 0
-// #include "drivers/dummy/dummy.h"
+// #include "fceu/drivers/dummy/dummy.h"
 #endif
 
-#include "driver.h"
+#include "fceu/driver.h"
 
 #else
-#include "drivers/sdl/sdl.h"
+#include "fceu/drivers/sdl/sdl.h"
 #endif
 
 using namespace std;

@@ -8,47 +8,47 @@
 #include <limits.h>
 #include <stdarg.h>
 
-#include "emufile.h"
-#include "version.h"
-#include "types.h"
-#include "utils/endian.h"
-#include "palette.h"
-#include "input.h"
-#include "fceu.h"
-#include "netplay.h"
-#include "driver.h"
-#include "state.h"
-#include "file.h"
-#include "video.h"
-#include "movie.h"
-#include "fds.h"
+#include "fceu/emufile.h"
+#include "fceu/version.h"
+#include "fceu/types.h"
+#include "fceu/utils/endian.h"
+#include "fceu/palette.h"
+#include "fceu/input.h"
+#include "fceu/fceu.h"
+#include "fceu/netplay.h"
+#include "fceu/driver.h"
+#include "fceu/state.h"
+#include "fceu/file.h"
+#include "fceu/video.h"
+#include "fceu/movie.h"
+#include "fceu/fds.h"
 #ifdef _S9XLUA_H
-#include "fceulua.h"
+#include "fceu/fceulua.h"
 #endif
-#include "utils/guid.h"
-#include "utils/memory.h"
-#include "utils/xstring.h"
+#include "fceu/utils/guid.h"
+#include "fceu/utils/memory.h"
+#include "fceu/utils/xstring.h"
 #include <sstream>
 
 #ifdef CREATE_AVI
-#include "drivers/videolog/nesvideos-piece.h"
+#include "fceu/drivers/videolog/nesvideos-piece.h"
 #endif
 
 #ifdef WIN32
 #ifndef NOWINSTUFF
 #include <windows.h>
-#include "./drivers/win/common.h"
-#include "./drivers/win/window.h"
+#include "fceu/./drivers/win/common.h"
+#include "fceu/./drivers/win/window.h"
 extern void AddRecentMovieFile(const char *filename);
 
-#include "./drivers/win/taseditor.h"
+#include "fceu/./drivers/win/taseditor.h"
 extern bool emulator_must_run_taseditor;
 #endif
 #endif
 
-using namespace std;
-
 #define MOVIE_VERSION           3
+
+using std::stringstream;
 
 extern char FileBase[];
 extern bool AutoSS;		//Declared in fceu.cpp, keeps track if a auto-savestate has been made
@@ -386,7 +386,7 @@ void MovieData::truncateAt(int frame)
 	records.resize(frame);
 }
 
-void MovieData::installValue(std::string& key, std::string& val)
+void MovieData::installValue(string& key, string& val)
 {
 	//todo - use another config system, or drive this from a little data structure. because this is gross
 	if(key == "FDS")
@@ -607,7 +607,7 @@ bool LoadFM2(MovieData& movieData, EMUFILE* fp, int size, bool stopAfterHeader)
 	if(memcmp(buf,"version 3",9))
 		return false;
 
-	std::string key,value;
+	string key,value;
 	enum {
 		NEWLINE, KEY, SEPARATOR, VALUE, RECORD, COMMENT, SUBTITLE
 	} state = NEWLINE;
@@ -844,7 +844,7 @@ bool FCEUI_LoadMovie(const char *fname, bool _read_only, int _pauseframe)
 #ifdef WIN32
 #ifndef NOWINSTUFF
 	//Fix relative path if necessary and then add to the recent movie menu
-	extern std::string BaseDirectory;
+	extern string BaseDirectory;
 
 	string name = fname;
 	if (IsRelativePath(fname))
@@ -1270,7 +1270,7 @@ bool FCEUMOV_ReadState(EMUFILE* is, uint32 size)
 			//mbg 8/18/08 - this code  can be used to turn the error message into an OK/CANCEL
                         #if defined(WIN32) && !defined(NOWINSTUFF)
 
-				std::string msg = "There is a mismatch between savestate's movie and current movie.\ncurrent: " + currMovieData.guid.toString() + "\nsavestate: " + tempMovieData.guid.toString() + "\n\nThis means that you have loaded a savestate belonging to a different movie than the one you are playing now.\n\nContinue loading this savestate anyway?";
+				string msg = "There is a mismatch between savestate's movie and current movie.\ncurrent: " + currMovieData.guid.toString() + "\nsavestate: " + tempMovieData.guid.toString() + "\n\nThis means that you have loaded a savestate belonging to a different movie than the one you are playing now.\n\nContinue loading this savestate anyway?";
 				extern HWND pwindow;
 				int result = MessageBox(pwindow,msg.c_str(),"Error loading savestate",MB_OKCANCEL);
 				if(result == IDCANCEL)
@@ -1560,12 +1560,12 @@ void LoadSubtitles(MovieData &moviedata)
 	extern std::vector<string> subtitles;
 	for(uint32 i=0; i < moviedata.subtitles.size() ; i++)
 	{
-		std::string& subtitle = moviedata.subtitles[i];
+		string& subtitle = moviedata.subtitles[i];
 		size_t splitat = subtitle.find_first_of(' ');
-		std::string key, value;
+		string key, value;
 
 		//If we can't split them, then don't process this one
-		if(splitat == std::string::npos)
+		if(splitat == string::npos)
 		{
 		}
 		//Else split the subtitle into the int and string arrays
@@ -1605,7 +1605,7 @@ void FCEU_DisplaySubtitles(char *format, ...)
 	subtitleMessage.linesFromBottom = 0;
 }
 
-void FCEUI_CreateMovieFile(std::string fn)
+void FCEUI_CreateMovieFile(string fn)
 {
 	MovieData md = currMovieData;							//Get current movie data
 	EMUFILE* outf = FCEUD_UTF8_fstream(fn, "wb");		//open/create file

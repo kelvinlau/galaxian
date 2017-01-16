@@ -28,26 +28,25 @@
 #include <vector>
 #include <fstream>
 
-#include "version.h"
-#include "types.h"
-#include "x6502.h"
-#include "fceu.h"
-#include "sound.h"
-#include "utils/endian.h"
-#include "utils/memory.h"
-#include "utils/xstring.h"
-#include "file.h"
-#include "fds.h"
-#include "state.h"
-#include "movie.h"
-#include "ppu.h"
-#include "netplay.h"
-#include "video.h"
-#include "input.h"
-#include "zlib.h"
-#include "driver.h"
-
-using namespace std;
+#include "fceu/version.h"
+#include "fceu/types.h"
+#include "fceu/x6502.h"
+#include "fceu/fceu.h"
+#include "fceu/sound.h"
+#include "fceu/utils/endian.h"
+#include "fceu/utils/memory.h"
+#include "fceu/utils/xstring.h"
+#include "fceu/file.h"
+#include "fceu/fds.h"
+#include "fceu/state.h"
+#include "fceu/movie.h"
+#include "fceu/ppu.h"
+#include "fceu/netplay.h"
+#include "fceu/video.h"
+#include "fceu/input.h"
+//#include "fceu/zlib.h"
+#include "third_party/zlib/v1_2_8/zlib.h"
+#include "fceu/driver.h"
 
 static void (*SPreSave)(void);
 static void (*SPostSave)(void);
@@ -752,7 +751,7 @@ void ResetExState(void (*PreSave)(void), void (*PostSave)(void))
 	for(x=0;x<SFEXINDEX;x++)
 	{
 		if(SFMDATA[x].desc)
-			free(SFMDATA[x].desc);
+			free((void*)SFMDATA[x].desc);
 	}
 	// adelikat, 3/14/09:  had to add this to clear out the size parameter.  NROM(mapper 0) games were having savestate crashes if loaded after a non NROM game	because the size variable was carrying over and causing savestates to save too much data
 	SFMDATA[0].s = 0;
@@ -762,16 +761,16 @@ void ResetExState(void (*PreSave)(void), void (*PostSave)(void))
 	SFEXINDEX=0;
 }
 
-void AddExState(void *v, uint32 s, int type, char *desc) {
+void AddExState(void *v, uint32 s, int type, const char *desc) {
 
   if(s==~0) {
       SFORMAT* sf = (SFORMAT*)v;
-      std::map<std::string,bool> names;
+      std::map<string,bool> names;
       while(sf->v)
 	{
 	  char tmp[5] = {0};
 	  memcpy(tmp,sf->desc,4);
-	  std::string desc = tmp;
+	  string desc = tmp;
 	  if(names.find(desc) != names.end())
 	    {
 #ifdef _MSC_VER
@@ -1009,8 +1008,8 @@ bool CheckBackupSaveStateExist()
 	string filename = GetBackupFileName(); //Get backup savestate filename
 
 	//Check if this filename exists
-	fstream test;
-	test.open(filename.c_str(),fstream::in);
+        std::fstream test;
+	test.open(filename.c_str(),std::fstream::in);
 
 	if (test.fail())
 	{

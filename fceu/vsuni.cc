@@ -21,14 +21,14 @@
 #include <string.h>
 #include <stdio.h>
 
-#include "types.h"
-#include "x6502.h"
-#include "fceu.h"
-#include "input.h"
-#include "netplay.h"
-#include "vsuni.h"
-#include "state.h"
-#include "driver.h"
+#include "fceu/types.h"
+#include "fceu/x6502.h"
+#include "fceu/fceu.h"
+#include "fceu/input.h"
+#include "fceu/netplay.h"
+#include "fceu/vsuni.h"
+#include "fceu/state.h"
+#include "fceu/driver.h"
 
 #define IOPTION_GUN       0x1
 #define IOPTION_SWAPDIRAB       0x2
@@ -36,7 +36,7 @@
 #define IOPTION_PREDIP    0x10
 typedef struct
 {
-        char *name;
+        const char *name;
         uint64 md5partial;
         int mapper;
         int mirroring;

@@ -9,8 +9,10 @@
 #include "fceu/state.h"
 #include "fceu/fceu.h"
 #include "fceu/types.h"
+#include "emulator.h"
 
-using namespace std;
+using std::vector;
+using std::map;
 
 namespace galaxian {
 

@@ -14,7 +14,7 @@
 
 #include "fceu/types.h"
 
-using namespace std;
+using std::vector;
 
 struct Emulator {
   // Returns false upon error. Only initialize once.

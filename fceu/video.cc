@@ -26,35 +26,35 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdarg.h>
-#include <zlib.h>
+#include "third_party/zlib/v1_2_8/zlib.h"
 
-#include "types.h"
-#include "video.h"
-#include "fceu.h"
-#include "file.h"
-#include "utils/memory.h"
-#include "utils/crc32.h"
-#include "state.h"
-#include "movie.h"
-#include "palette.h"
-#include "nsf.h"
-#include "input.h"
-#include "vsuni.h"
-#include "drawing.h"
-#include "driver.h"
+#include "fceu/types.h"
+#include "fceu/video.h"
+#include "fceu/fceu.h"
+#include "fceu/file.h"
+#include "fceu/utils/memory.h"
+#include "fceu/utils/crc32.h"
+#include "fceu/state.h"
+#include "fceu/movie.h"
+#include "fceu/palette.h"
+#include "fceu/nsf.h"
+#include "fceu/input.h"
+#include "fceu/vsuni.h"
+#include "fceu/drawing.h"
+#include "fceu/driver.h"
 #ifdef _S9XLUA_H
-#include "fceulua.h"
+#include "fceu/fceulua.h"
 #endif
 
 #ifdef WIN32
 #ifndef NOWINSTUFF
-#include "drivers/win/common.h" //For DirectX constants
-#include "drivers/win/input.h"
+#include "fceu/drivers/win/common.h" //For DirectX constants
+#include "fceu/drivers/win/input.h"
 #endif
 #endif
 
 #ifdef CREATE_AVI
-#include "drivers/videolog/nesvideos-piece.h"
+#include "fceu/drivers/videolog/nesvideos-piece.h"
 #endif
 
 uint8 *XBuf=NULL;
@@ -71,10 +71,10 @@ extern uint32 cur_input_display;
 
 bool oldInputDisplay = false;
 
-std::string AsSnapshotName ="";			//adelikat:this will set the snapshot name when for s savesnapshot as function
+string AsSnapshotName ="";			//adelikat:this will set the snapshot name when for s savesnapshot as function
 
-void FCEUI_SetSnapshotAsName(std::string name) { AsSnapshotName = name; }
-std::string FCEUI_GetSnapshotAsName() { return AsSnapshotName; }
+void FCEUI_SetSnapshotAsName(string name) { AsSnapshotName = name; }
+string FCEUI_GetSnapshotAsName() { return AsSnapshotName; }
 
 void FCEU_KillVirtualVideo(void)
 {

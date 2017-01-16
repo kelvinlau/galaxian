@@ -24,17 +24,17 @@
 #include <string.h>
 
 
-#include "types.h"
-#include "file.h"
-#include "fceu.h"
-#include "driver.h"
-#include "boards/mapinc.h"
+#include "fceu/types.h"
+#include "fceu/file.h"
+#include "fceu/fceu.h"
+#include "fceu/driver.h"
+//#include "fceu/boards/mapinc.h"
 #ifdef _S9XLUA_H
-#include "fceulua.h"
+#include "fceu/fceulua.h"
 #endif
 
-#include "palette.h"
-#include "palettes/palettes.h"
+#include "fceu/palette.h"
+#include "fceu/palettes/palettes.h"
 
 
 

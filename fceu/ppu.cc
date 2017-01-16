@@ -1167,7 +1167,7 @@ void FCEUI_GetRenderPlanes(bool& sprites, bool& bg)
 //				//if((vadr+turt*8192)>=524288)
 //				//printf("%d ",vadr+turt*8192);
 //				cc=0;
-//				//#include "pputile.inc"
+//				//#include "fceu/pputile.inc"
 //			}
 //}
 
@@ -1300,12 +1300,12 @@ static void RefreshLine(int lastpixel)
 				if((tochange<=0 && MMC5HackSPMode&0x40) || (tochange>0 && !(MMC5HackSPMode&0x40)))
 				{
 #define PPUT_MMC5SP
-#include "pputile.inc"
+#include "fceu/pputile.inc"
 #undef PPUT_MMC5SP
 				}
 				else
 				{
-#include "pputile.inc"
+#include "fceu/pputile.inc"
 				}
 				tochange--;
 			}
@@ -1319,7 +1319,7 @@ static void RefreshLine(int lastpixel)
 #define PPUT_MMC5CHR1
 			for(X1=firsttile;X1<lasttile;X1++)
 			{
-#include "pputile.inc"
+#include "fceu/pputile.inc"
 			}
 #undef PPUT_MMC5CHR1
 #undef PPUT_MMC5SP
@@ -1329,7 +1329,7 @@ static void RefreshLine(int lastpixel)
 #define PPUT_MMC5CHR1
 			for(X1=firsttile;X1<lasttile;X1++)
 			{
-#include "pputile.inc"
+#include "fceu/pputile.inc"
 			}
 #undef PPUT_MMC5CHR1
 		}
@@ -1337,7 +1337,7 @@ static void RefreshLine(int lastpixel)
 		{
 			for(X1=firsttile;X1<lasttile;X1++)
 			{
-#include "pputile.inc"
+#include "fceu/pputile.inc"
 			}
 		}
 	}
@@ -1348,7 +1348,7 @@ static void RefreshLine(int lastpixel)
 #define PPUT_HOOK
 		for(X1=firsttile;X1<lasttile;X1++)
 		{
-#include "pputile.inc"
+#include "fceu/pputile.inc"
 		}
 #undef PPUT_HOOK
 		norecurse=0;
@@ -1357,7 +1357,7 @@ static void RefreshLine(int lastpixel)
 	{
 		for(X1=firsttile;X1<lasttile;X1++)
 		{
-#include "pputile.inc"
+#include "fceu/pputile.inc"
 		}
 	}
 

@@ -26,18 +26,18 @@
 #include <sys/stat.h>
 //#include <unistd.h> //mbg merge 7/17/06 removed
 
-#include <zlib.h>
+#include "third_party/zlib/v1_2_8/zlib.h"
 
-#include "types.h"
-#include "file.h"
-#include "utils/endian.h"
-#include "netplay.h"
-#include "fceu.h"
-#include "state.h"
-#include "cheat.h"
-#include "input.h"
-#include "driver.h"
-#include "utils/memory.h"
+#include "fceu/types.h"
+#include "fceu/file.h"
+#include "fceu/utils/endian.h"
+#include "fceu/netplay.h"
+#include "fceu/fceu.h"
+#include "fceu/state.h"
+#include "fceu/cheat.h"
+#include "fceu/input.h"
+#include "fceu/driver.h"
+#include "fceu/utils/memory.h"
 
 int FCEUnetplay=0;
 

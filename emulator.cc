@@ -15,8 +15,11 @@
 #include "fceu/state.h"
 #include "fceu/sound.h"
 
-#include "cc-lib/base/logging.h"
-#include "cc-lib/city/city.h"
+#include "base/logging.h"
+#include "third_party/cityhash/city.h"
+
+using std::pair;
+using std::unordered_map;
 
 // Joystick data. I think used for both controller 0 and 1. Part of
 // the "API".
@@ -36,9 +39,8 @@ struct StateCache {
   struct HashFunction {
     size_t operator ()(const Key &k) const {
       CHECK(k.second);
-      return CityHash64WithSeed((const char *)&(k.second->at(0)),
-				k.second->size(),
-				k.first);
+      return third_party_cityhash::CityHash64WithSeed(
+          (const char *)&(k.second->at(0)), k.second->size(), k.first);
     }
   };
 

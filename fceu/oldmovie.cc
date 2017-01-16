@@ -1,16 +1,17 @@
-#include "version.h"
-#include "types.h"
-#include "fceu.h"
-#include "driver.h"
-#include "netplay.h"
+#include "fceu/version.h"
+#include "fceu/types.h"
+#include "fceu/fceu.h"
+#include "fceu/driver.h"
+#include "fceu/netplay.h"
 
-#include "oldmovie.h"
-#include "movie.h"
-#include "utils/xstring.h"
+#include "fceu/oldmovie.h"
+#include "fceu/movie.h"
+#include "fceu/utils/xstring.h"
 
 #include <fstream>
 
-using namespace std;
+using std::vector;
+using std::map;
 
 // FCM\x1a
 #define MOVIE_MAGIC             0x1a4d4346
@@ -532,7 +533,7 @@ static void _addjoy()
 }
 
 
-EFCM_CONVERTRESULT convert_fcm(MovieData& md, std::string fname)
+EFCM_CONVERTRESULT convert_fcm(MovieData& md, string fname)
 {
 	//convert EVEN OLDER movies to fcm
 	//fname = (char*)convertToFCM(fname,buffer);

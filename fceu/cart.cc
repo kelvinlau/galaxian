@@ -25,16 +25,16 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <limits.h>
-#include "types.h"
-#include "fceu.h"
-#include "ppu.h"
-#include "driver.h"
+#include "fceu/types.h"
+#include "fceu/fceu.h"
+#include "fceu/ppu.h"
+#include "fceu/driver.h"
 
-#include "cart.h"
-#include "x6502.h"
+#include "fceu/cart.h"
+#include "fceu/x6502.h"
 
-#include "file.h"
-#include "utils/memory.h"
+#include "fceu/file.h"
+#include "fceu/utils/memory.h"
 
 
 uint8 *Page[32],*VPage[8];
@@ -639,7 +639,7 @@ void FCEU_SaveGameSave(CartInfo *LocalHWInfo)
 	{
 		FILE *sp;
 
-		std::string soot = FCEU_MakeFName(FCEUMKF_SAV,0,"sav");
+		string soot = FCEU_MakeFName(FCEUMKF_SAV,0,"sav");
 		if((sp=FCEUD_UTF8fopen(soot,"wb"))==NULL)
 		{
 			FCEU_PrintError("WRAM file \"%s\" cannot be written to.\n",soot.c_str());
@@ -665,7 +665,7 @@ void FCEU_LoadGameSave(CartInfo *LocalHWInfo)
 	{
 		FILE *sp;
 
-		std::string soot = FCEU_MakeFName(FCEUMKF_SAV,0,"sav");
+		string soot = FCEU_MakeFName(FCEUMKF_SAV,0,"sav");
 		sp=FCEUD_UTF8fopen(soot,"rb");
 		if(sp!=NULL)
 		{

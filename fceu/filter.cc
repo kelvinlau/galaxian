@@ -3,14 +3,14 @@
 
 #include <math.h>
 #include <stdio.h>
-#include "types.h"
+#include "fceu/types.h"
 
-#include "sound.h"
-#include "x6502.h"
-#include "fceu.h"
-#include "filter.h"
+#include "fceu/sound.h"
+#include "fceu/x6502.h"
+#include "fceu/fceu.h"
+#include "fceu/filter.h"
 
-#include "fcoeffs.h"
+#include "fceu/fcoeffs.h"
 
 static int32 sq2coeffs[SQ2NCOEFFS];
 static int32 coeffs[NCOEFFS];

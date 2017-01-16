@@ -26,21 +26,21 @@
 #include <string.h>
 #include <math.h>
 
-#include "types.h"
-#include "x6502.h"
-#include "fceu.h"
-#include "video.h"
-#include "sound.h"
-#include "nsf.h"
-#include "utils/general.h"
-#include "utils/memory.h"
-#include "file.h"
-#include "fds.h"
-#include "cart.h"
-#include "input.h"
-#include "driver.h"
+#include "fceu/types.h"
+#include "fceu/x6502.h"
+#include "fceu/fceu.h"
+#include "fceu/video.h"
+#include "fceu/sound.h"
+#include "fceu/nsf.h"
+#include "fceu/utils/general.h"
+#include "fceu/utils/memory.h"
+#include "fceu/file.h"
+#include "fceu/fds.h"
+#include "fceu/cart.h"
+#include "fceu/input.h"
+#include "fceu/driver.h"
 #ifdef _S9XLUA_H
-#include "fceulua.h"
+#include "fceu/fceulua.h"
 #endif
 
 #ifndef M_PI

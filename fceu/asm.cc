@@ -4,11 +4,11 @@
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
-#include "types.h"
-#include "utils/xstring.h"
-#include "debug.h"
-#include "asm.h"
-#include "x6502.h"
+#include "fceu/types.h"
+#include "fceu/utils/xstring.h"
+#include "fceu/debug.h"
+#include "fceu/asm.h"
+#include "fceu/x6502.h"
 
 ///assembles the string to an instruction located at addr, storing opcodes in output buffer
 int Assemble(unsigned char *output, int addr, char *str) {
