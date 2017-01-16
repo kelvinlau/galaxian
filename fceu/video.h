@@ -1,5 +1,8 @@
 #ifndef _VIDEO_H_
 #define _VIDEO_H_
+
+#include "fceu/types.h"
+
 int FCEU_InitVirtualVideo(void);
 void FCEU_KillVirtualVideo(void);
 int SaveSnapshot(void);
@@ -29,8 +32,8 @@ extern GUIMESSAGE subtitleMessage;
 
 void FCEU_DrawNumberRow(uint8 *XBuf, int *nstatus, int cur);
 
-std::string FCEUI_GetSnapshotAsName();
-void FCEUI_SetSnapshotAsName(std::string name);
+string FCEUI_GetSnapshotAsName();
+void FCEUI_SetSnapshotAsName(string name);
 bool FCEUI_ShowFPS();
 void FCEUI_SetShowFPS(bool showFPS);
 void FCEUI_ToggleShowFPS();

@@ -5,8 +5,8 @@
 
 #include <string>
 #include <iostream>
-#include "types.h"
-#include "emufile.h"
+#include "fceu/types.h"
+#include "fceu/emufile.h"
 
 extern bool bindSavestate;
 
@@ -16,16 +16,16 @@ struct FCEUFILE {
 	EMUFILE *stream;
 
 	//the name of the file, or the logical name of the file within the archive
-	std::string filename;
+	string filename;
 
 	//a weirdly derived value.. maybe a path to a file, or maybe a path to a file which doesnt exist but which is in an archive in the same directory
-	std::string logicalPath;
+	string logicalPath;
 
 	//the filename of the archive (maybe "" if it is not in an archive)
-	std::string archiveFilename;
+	string archiveFilename;
 
 	//a the path to the filename, possibly using | to get into the archive
-	std::string fullFilename;
+	string fullFilename;
 
 	//the number of files that were in the archive
 	int archiveCount;
@@ -77,7 +77,7 @@ struct FCEUFILE {
 };
 
 struct FCEUARCHIVEFILEINFO_ITEM {
-	std::string name;
+	string name;
 	uint32 size, index;
 };
 
@@ -87,9 +87,9 @@ public:
 };
 
 struct FileBaseInfo {
-	std::string filebase, filebasedirectory, ext;
+	string filebase, filebasedirectory, ext;
 	FileBaseInfo() {}
-	FileBaseInfo(std::string fbd, std::string fb, std::string ex)
+	FileBaseInfo(string fbd, string fb, string ex)
 	{
 		filebasedirectory = fbd;
 		filebase = fb;
@@ -137,11 +137,11 @@ int FCEU_fisarchive(FCEUFILE*);
 
 
 void GetFileBase(const char *f);
-std::string FCEU_GetPath(int type);
-std::string FCEU_MakePath(int type, const char* filebase);
-std::string FCEU_MakeFName(int type, int id1, const char *cd1);
-std::string GetMfn();
-void FCEU_SplitArchiveFilename(std::string src, std::string& archive, std::string& file, std::string& fileToOpen);
+string FCEU_GetPath(int type);
+string FCEU_MakePath(int type, const char* filebase);
+string FCEU_MakeFName(int type, int id1, const char *cd1);
+string GetMfn();
+void FCEU_SplitArchiveFilename(string src, string& archive, string& file, string& fileToOpen);
 
 #define FCEUMKF_STATE        1
 #define FCEUMKF_SNAP         2

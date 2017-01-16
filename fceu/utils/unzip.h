@@ -46,7 +46,8 @@ extern "C" {
 #endif
 
 #ifndef _ZLIB_H
-#include "zlib.h"
+// #include "fceu/utils/zlib.h"
+#include "third_party/zlib/v1_2_8/zlib.h"
 #endif
 
 #ifndef OF 

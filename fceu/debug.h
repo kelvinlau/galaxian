@@ -1,9 +1,9 @@
 #ifndef _DEBUG_H_
 #define _DEBUG_H_
 
-#include "conddebug.h"
-#include "git.h"
-#include "nsf.h"
+#include "fceu/conddebug.h"
+#include "fceu/git.h"
+#include "fceu/nsf.h"
 
 //watchpoint stuffs
 #define WP_E       0x01  //watchpoint, enable

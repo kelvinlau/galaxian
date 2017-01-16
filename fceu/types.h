@@ -75,9 +75,9 @@ typedef uint32_t uint32;
 #endif
 
 #ifdef __GNUC__
- typedef uint64_t uint64;
+ typedef unsigned long long uint64;
  typedef uint64 u64;
- typedef int64_t int64;
+ typedef long long int64;
  #define INLINE inline
  #define GINLINE inline
 #elif MSVC
@@ -101,6 +101,8 @@ typedef uint32_t uint32;
   #define vsnprintf _vsnprintf
  #endif
 #endif
+
+#define PSS_STYLE 1
 
 #if PSS_STYLE==2
 
@@ -137,6 +139,6 @@ typedef uint8 (*readfunc)(uint32 A);
 //  typedef char __assert ## y[(x) ? 1 : -1];
 #endif
 
-#include "utils/endian.h"
+#include "fceu/utils/endian.h"
 
 #endif

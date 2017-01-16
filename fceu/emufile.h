@@ -34,7 +34,7 @@ THE SOFTWARE.
 #include <stdarg.h>
 #include <utility>
 
-#include "emufile_types.h"
+#include "fceu/emufile_types.h"
 
 #ifdef _MSC_VER
 #include <io.h>
@@ -55,7 +55,7 @@ public:
 
         virtual ~EMUFILE() {}
 
-        static bool readAllBytes(std::vector<u8>* buf, const std::string& fname);
+        static bool readAllBytes(std::vector<u8>* buf, const string& fname);
 
         bool fail(bool unset=false) { bool ret = failbit; if(unset) unfail(); return ret; }
         void unfail() { failbit=false; }
@@ -265,7 +265,7 @@ public:
 class EMUFILE_FILE : public EMUFILE {
 protected:
         FILE* fp;
-        std::string fname;
+        string fname;
         char mode[16];
 
 private:
@@ -273,7 +273,7 @@ private:
 
 public:
 
-        EMUFILE_FILE(const std::string& fname, const char* mode) { open(fname.c_str(),mode); }
+        EMUFILE_FILE(const string& fname, const char* mode) { open(fname.c_str(),mode); }
         EMUFILE_FILE(const char* fname, const char* mode) { open(fname,mode); }
 
         virtual ~EMUFILE_FILE() {

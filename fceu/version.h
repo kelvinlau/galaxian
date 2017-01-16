@@ -24,7 +24,7 @@
 
 //todo - everyone will want to support this eventually, i suppose
 #ifdef _MSC_VER
-#include "svnrev.h"
+#include "fceu/svnrev.h"
 #else
 #ifdef SVN_REV
 #define SVN_REV_STR SVN_REV

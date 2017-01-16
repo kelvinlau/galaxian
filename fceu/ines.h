@@ -24,6 +24,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <map>
+#include "base/integral_types.h"
+#include "fceu/cart.h"
 #ifdef INESPRIV
 
 void iNESStateRestore(int version);
@@ -75,10 +77,10 @@ struct TMasterRomInfo
 	const char* params;
 };
 
-class TMasterRomInfoParams : public std::map<std::string,std::string>
+class TMasterRomInfoParams : public std::map<string,string>
 {
 public:
-	bool ContainsKey(const std::string& key) { return find(key) != end(); }
+	bool ContainsKey(const string& key) { return find(key) != end(); }
 };
 
 //mbg merge 6/29/06

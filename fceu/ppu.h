@@ -1,3 +1,5 @@
+#include "fceu/types.h"
+
 void FCEUPPU_Init(void);
 void FCEUPPU_Reset(void);
 void FCEUPPU_Power(void);

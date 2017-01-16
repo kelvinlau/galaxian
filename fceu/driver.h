@@ -5,17 +5,17 @@
 #include <string>
 #include <iosfwd>
 
-#include "types.h"
-#include "git.h"
-#include "file.h"
+#include "fceu/types.h"
+#include "fceu/git.h"
+#include "fceu/file.h"
 
 FILE *FCEUD_UTF8fopen(const char *fn, const char *mode);
-inline FILE *FCEUD_UTF8fopen(const std::string &n, const char *mode) { return FCEUD_UTF8fopen(n.c_str(),mode); }
+inline FILE *FCEUD_UTF8fopen(const string &n, const char *mode) { return FCEUD_UTF8fopen(n.c_str(),mode); }
 EMUFILE_FILE* FCEUD_UTF8_fstream(const char *n, const char *m);
-inline EMUFILE_FILE* FCEUD_UTF8_fstream(const std::string &n, const char *m) { return FCEUD_UTF8_fstream(n.c_str(),m); }
-FCEUFILE* FCEUD_OpenArchiveIndex(ArchiveScanRecord& asr, std::string& fname, int innerIndex);
-FCEUFILE* FCEUD_OpenArchive(ArchiveScanRecord& asr, std::string& fname, std::string* innerFilename);
-ArchiveScanRecord FCEUD_ScanArchive(std::string fname);
+inline EMUFILE_FILE* FCEUD_UTF8_fstream(const string &n, const char *m) { return FCEUD_UTF8_fstream(n.c_str(),m); }
+FCEUFILE* FCEUD_OpenArchiveIndex(ArchiveScanRecord& asr, string& fname, int innerIndex);
+FCEUFILE* FCEUD_OpenArchive(ArchiveScanRecord& asr, string& fname, string* innerFilename);
+ArchiveScanRecord FCEUD_ScanArchive(string fname);
 
 //mbg 7/23/06
 const char *FCEUD_GetCompilerString();
@@ -135,7 +135,7 @@ void FCEUI_FrameSkip(int x);
 void FCEUI_SetRenderedLines(int ntscf, int ntscl, int palf, int pall);
 
 //Sets the base directory(save states, snapshots, etc. are saved in directories below this directory.
-void FCEUI_SetBaseDirectory(std::string const & dir);
+void FCEUI_SetBaseDirectory(string const & dir);
 
 //Tells FCE Ultra to copy the palette data pointed to by pal and use it.
 //Data pointed to by pal needs to be 64*3 bytes in length.

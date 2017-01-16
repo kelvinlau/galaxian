@@ -23,8 +23,8 @@
 #include <vector>
 #include <iostream>
 
-#include "../types.h"
-#include "../emufile.h"
+#include "base/integral_types.h"
+#include "fceu/emufile.h"
 
 #ifndef __GNUC__
 #define strcasecmp strcmp
@@ -45,12 +45,12 @@ int str_strip(char *str, int flags);
 int chr_replace(char *str, char search, char replace);
 int str_replace(char *str, char *search, char *replace);
 
-int HexStringToBytesLength(const std::string& str);
-int Base64StringToBytesLength(const std::string& str);
-std::string BytesToString(const void* data, int len);
-bool StringToBytes(const std::string& str, void* data, int len);
+int HexStringToBytesLength(const string& str);
+int Base64StringToBytesLength(const string& str);
+string BytesToString(const void* data, int len);
+bool StringToBytes(const string& str, void* data, int len);
 
-std::vector<std::string> tokenize_str(const std::string & str,const std::string & delims);
+std::vector<string> tokenize_str(const string & str,const string & delims);
 void splitpath(const char* path, char* drv, char* dir, char* name, char* ext);
 
 uint16 FastStrToU16(char* s, bool& valid);
@@ -62,9 +62,9 @@ char *U8ToDecStr(uint8 a);
 char *U8ToHexStr(uint8 a);
 char *U16ToHexStr(uint16 a);
 
-std::string stditoa(int n);
+string stditoa(int n);
 
-std::string readNullTerminatedAscii(EMUFILE* is);
+string readNullTerminatedAscii(EMUFILE* is);
 
 //extracts a decimal uint from an istream
 template<typename T> T templateIntegerDecFromIstream(EMUFILE* is)
@@ -118,15 +118,15 @@ template<typename T, int DIGITS, bool PAD> void putdec(EMUFILE* os, T dec)
                 os->fwrite(temp,DIGITS);
 }
 
-std::string mass_replace(const std::string &source, const std::string &victim, const std::string &replacement);
+string mass_replace(const string &source, const string &victim, const string &replacement);
 
-std::wstring mbstowcs(std::string str);
-std::string wcstombs(std::wstring str);
+std::wstring mbstowcs(string str);
+string wcstombs(std::wstring str);
 
 
 
 //TODO - dont we already have another  function that can do this
-std::string getExtension(const char* input);
+string getExtension(const char* input);
 
-std::string StripExtension(std::string filename);
-std::string StripPath(std::string filename);
+string StripExtension(string filename);
+string StripPath(string filename);

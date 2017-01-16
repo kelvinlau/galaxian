@@ -22,7 +22,8 @@
 #define __STATE_H
 
 #include <vector>
-#include "types.h"
+#include <string>
+#include "fceu/types.h"
 
 enum ENUM_SSLOADPARAMS
 {
@@ -59,7 +60,7 @@ bool FCEUSS_SaveRAW(std::vector<uint8> *out);
 bool FCEUSS_LoadRAW(std::vector<uint8> *in);
 
 void ResetExState(void (*PreSave)(void),void (*PostSave)(void));
-void AddExState(void *v, uint32 s, int type, char *desc);
+void AddExState(void *v, uint32 s, int type, const char *desc);
 
 //indicates that the value is a multibyte integer that needs to be put in the correct byte order
 #define FCEUSTATE_RLSB            0x80000000

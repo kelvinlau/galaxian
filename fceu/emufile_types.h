@@ -1,7 +1,7 @@
 #ifndef EMUFILE_TYPES_H
 #define EMUFILE_TYPES_H
 
-#include "types.h"
+#include "base/integral_types.h"
 
 typedef uint8 u8;
 typedef uint16 u16;

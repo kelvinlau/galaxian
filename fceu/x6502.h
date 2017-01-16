@@ -20,7 +20,7 @@
 
 #ifndef _X6502H
 
-#include "x6502struct.h"
+#include "fceu/x6502struct.h"
 
 extern X6502 X;
 

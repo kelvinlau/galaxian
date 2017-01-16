@@ -1,3 +1,5 @@
+#include "fceu/types.h"
+
 int InitNetplay(void);
 void NetplayUpdate(uint8 *joyp);
 extern int FCEUnetplay;

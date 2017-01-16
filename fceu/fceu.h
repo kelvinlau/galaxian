@@ -1,6 +1,9 @@
 #ifndef _FCEUH
 #define _FCEUH
 
+#include "base/integral_types.h"
+#include "fceu/types.h"
+
 extern int fceuindbg;
 extern int newppu;
 void ResetGameLoaded(void);
@@ -66,13 +69,13 @@ extern void (*GameInterface)(GI h);
 extern void (*GameStateRestore)(int version);
 
 
-#include "git.h"
+#include "fceu/git.h"
 extern FCEUGI *GameInfo;
 extern int GameAttributes;
 
 extern uint8 PAL;
 
-//#include "driver.h"
+//#include "fceu/driver.h"
 
 typedef struct {
         int PAL;

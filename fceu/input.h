@@ -3,7 +3,7 @@
 
 #include <ostream>
 
-#include "git.h"
+#include "fceu/git.h"
 
 void LagCounterToggle(void);
 

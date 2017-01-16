@@ -21,6 +21,8 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
  */
 
+#include "fceu/types.h"
+
 typedef struct {
                 char ID[5]; /*NESM^Z*/
                 uint8 Version;

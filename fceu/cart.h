@@ -1,4 +1,10 @@
-typedef struct {
+#ifndef FCEU_CART_H_
+#define FCEU_CART_H_
+
+#include "fceu/types.h"
+#include "fceu/fceu.h"
+
+struct CartInfo {
   /* Set by mapper/board code: */
   void (*Power)(void);
   void (*Reset)(void);
@@ -19,7 +25,7 @@ typedef struct {
            code, used by mapper/board code, maybe
            other code in the future.
         */
-} CartInfo;
+};
 
 void FCEU_SaveGameSave(CartInfo *LocalHWInfo);
 void FCEU_LoadGameSave(CartInfo *LocalHWInfo);
@@ -99,3 +105,5 @@ void GeniePower(void);
 void OpenGenie(void);
 void CloseGenie(void);
 void FCEU_KillGenie(void);
+
+#endif

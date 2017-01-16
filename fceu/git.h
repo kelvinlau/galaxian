@@ -108,7 +108,7 @@ inline const char* ESIFC_Name(ESIFC esifc)
 }
 
 
-#include "utils/md5.h"
+#include "fceu/utils/md5.h"
 
 struct FCEUGI
 {

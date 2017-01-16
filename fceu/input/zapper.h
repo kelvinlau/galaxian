@@ -1,7 +1,7 @@
 #ifndef _ZAPPER_H_
 #define _ZAPPER_H_
 
-#include "../types.h"
+#include "fceu/types.h"
 
 struct ZAPPER
 {

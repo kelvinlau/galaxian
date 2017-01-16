@@ -1,7 +1,9 @@
 #ifndef _OLDMOVIE_H_
 #define _OLDMOVIE_H_
 
-#include "movie.h"
+#include "fceu/movie.h"
+
+using ::string;
 
 enum EFCM_CONVERTRESULT
 {
@@ -25,6 +27,6 @@ inline const char * EFCM_CONVERTRESULT_message(EFCM_CONVERTRESULT e)
 	return errmsg[e];
 }
 
-EFCM_CONVERTRESULT convert_fcm(MovieData& md, std::string fname);
+EFCM_CONVERTRESULT convert_fcm(MovieData& md, string fname);
 
 #endif

@@ -7,9 +7,9 @@
 #include <ostream>
 #include <stdlib.h>
 
-#include "input/zapper.h"
-#include "utils/guid.h"
-#include "utils/md5.h"
+#include "fceu/input/zapper.h"
+#include "fceu/utils/guid.h"
+#include "fceu/utils/md5.h"
 
 struct FCEUFILE;
 
@@ -41,10 +41,10 @@ typedef struct
 	bool reset; //mbg 6/21/08 - this flag isnt used anymore.. but maybe one day we can scan it out of the first record in the movie file
 	uint32 emu_version_used;				// 9813 = 0.98.13
 	MD5DATA md5_of_rom_used;
-	std::string name_of_rom_used;
+	string name_of_rom_used;
 
 	std::vector<std::wstring> comments;
-	std::vector<std::string> subtitles;
+	std::vector<string> subtitles;
 } MOVIE_INFO;
 
 
@@ -172,11 +172,11 @@ public:
 	bool palFlag;
 	bool PPUflag;
 	MD5DATA romChecksum;
-	std::string romFilename;
+	string romFilename;
 	std::vector<uint8> savestate;
 	std::vector<MovieRecord> records;
 	std::vector<std::wstring> comments;
-	std::vector<std::string> subtitles;
+	std::vector<string> subtitles;
 	//this is the RERECORD COUNT. please rename variable.
 	int rerecordCount;
 	FCEU_Guid guid;
@@ -195,27 +195,27 @@ public:
 
 	int getNumRecords() { return records.size(); }
 
-	class TDictionary : public std::map<std::string,std::string>
+	class TDictionary : public std::map<string,string>
 	{
 	public:
-		bool containsKey(std::string key)
+		bool containsKey(string key)
 		{
 			return find(key) != end();
 		}
 
-		void tryInstallBool(std::string key, bool& val)
+		void tryInstallBool(string key, bool& val)
 		{
 			if(containsKey(key))
 				val = atoi(operator [](key).c_str())!=0;
 		}
 
-		void tryInstallString(std::string key, std::string& val)
+		void tryInstallString(string key, string& val)
 		{
 			if(containsKey(key))
 				val = operator [](key);
 		}
 
-		void tryInstallInt(std::string key, int& val)
+		void tryInstallInt(string key, int& val)
 		{
 			if(containsKey(key))
 				val = atoi(operator [](key).c_str());
@@ -224,7 +224,7 @@ public:
 	};
 
 	void truncateAt(int frame);
-	void installValue(std::string& key, std::string& val);
+	void installValue(string& key, string& val);
 	int dump(EMUFILE* os, bool binary);
 
 	void clearRecordRange(int start, int len);
@@ -235,12 +235,12 @@ public:
 	static void dumpSavestateTo(std::vector<uint8>* buf, int compressionLevel);
 
 private:
-	void installInt(std::string& val, int& var)
+	void installInt(string& val, int& var)
 	{
 		var = atoi(val.c_str());
 	}
 
-	void installBool(std::string& val, bool& var)
+	void installBool(string& val, bool& var)
 	{
 		var = atoi(val.c_str())!=0;
 	}
@@ -256,7 +256,7 @@ extern bool autoMovieBackup;
 extern bool fullSaveStateLoads;
 //--------------------------------------------------
 void FCEUI_MakeBackupMovie(bool dispMessage);
-void FCEUI_CreateMovieFile(std::string fn);
+void FCEUI_CreateMovieFile(string fn);
 void FCEUI_SaveMovie(const char *fname, EMOVIE_FLAG flags, std::wstring author);
 bool FCEUI_LoadMovie(const char *fname, bool read_only, int _stopframe);
 void FCEUI_MoviePlayFromBeginning(void);
@@ -268,7 +268,7 @@ bool FCEUI_GetMovieToggleReadOnly();
 void FCEUI_SetMovieToggleReadOnly(bool which);
 int FCEUI_GetMovieLength();
 int FCEUI_GetMovieRerecordCount();
-std::string FCEUI_GetMovieName(void);
+string FCEUI_GetMovieName(void);
 void FCEUI_MovieToggleFrameDisplay();
 void FCEUI_MovieToggleRerecordDisplay();
 void FCEUI_ToggleInputDisplay(void);

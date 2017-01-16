@@ -37,7 +37,7 @@
 
 //todo - everyone will want to support this eventually, i suppose
 #ifdef _WINDOWS
-#include "config.h"
+#include "fceu/config.h"
 #endif
 
 //xbox needs to include this to resemble windows

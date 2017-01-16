@@ -21,6 +21,8 @@
 #ifndef _SOUND_H_
 #define _SOUND_H_
 
+#include "fceu/types.h"
+
 typedef struct {
 	   void (*Fill)(int Count);	/* Low quality ext sound. */
 
