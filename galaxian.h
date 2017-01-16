@@ -68,7 +68,7 @@ vector<Point> GetStillEnemies() {
 vector<int> GetStillEnemiesEncoded() {
   vector<int> ret;
   ret.reserve(11);
-  int dx = RAM[0xE5];
+  int dx = (RAM[0xE5] + 56) % 256;
   ret.push_back(dx);
   for (int i = 0; i < 10; ++i) {
     int mask = RAM[0xC3 + i];

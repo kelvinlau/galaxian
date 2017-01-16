@@ -25,7 +25,7 @@ import tensorflow as tf
 
 
 # Game input/output.
-NUM_STILL_ENEMIES = 0 # 10
+NUM_STILL_ENEMIES = 10
 NUM_INCOMING_ENEMIES = 6
 NUM_BULLETS = 6
 
@@ -39,7 +39,7 @@ if RAW_IMAGE:
 else:
   DX = 8
   WIDTH = 256 / DX
-  INPUT_DIM = 1 + 4 + 2 * WIDTH
+  INPUT_DIM = 1 + 1 + 5 + 4 + 2 * WIDTH
 
 
 ACTION_NAMES = ['_', 'L', 'R', 'A']
@@ -51,8 +51,8 @@ GAMMA = 0.99
 INITIAL_EPSILON = 1.0
 FINAL_EPSILON = 0.1
 EXPLORE_STEPS = 1000000
-OBSERVE_STEPS = 0 # 10000
-REPLAY_MEMORY = 100000 # 2000  # ~6G memory
+OBSERVE_STEPS = 5000
+REPLAY_MEMORY = 100000 if not RAW_IMAGE else 2000  # 2000 = ~6G memory
 MINI_BATCH_SIZE = 32
 TRAIN_INTERVAL = 1
 UPDATE_TARGET_NETWORK_INTERVAL = 10000
@@ -62,7 +62,7 @@ if DOUBLE_Q:
   FINAL_EPSILON = 0.01
 
 # Checkpoint.
-CHECKPOINT_DIR = 'galaxian2m/'
+CHECKPOINT_DIR = 'galaxian2n/'
 CHECKPOINT_FILE = 'model.ckpt'
 SAVE_INTERVAL = 10000
 
@@ -91,6 +91,21 @@ def OneHot(n, i):
   return [1 if j == i else 0 for j in xrange(n)]
 
 
+def NumBits(mask):
+  ret = 0
+  while mask:
+    if mask % 2:
+      ret += 1
+    mask = mask / 2
+  return ret
+
+
+def Sign(x):
+  if x == 0:
+    return 0
+  return 1 if x > 0 else -1
+
+
 class Frame:
   def __init__(self, line):
     """Parse a Frame from a line."""
@@ -113,11 +128,11 @@ class Frame:
     self.missile = self.NextPoint()
 
     # still enemies (encoded)
-    dx = self.NextInt()
-    masks = []
+    self.sdx = self.NextInt()
+    self.masks = []
     for i in xrange(10):
-      masks.append(self.NextInt())
-    masks = masks[:NUM_STILL_ENEMIES]
+      self.masks.append(self.NextInt())
+    self.masks = self.masks[:NUM_STILL_ENEMIES]
 
     self.incoming_enemies = {}
     for i in xrange(self.NextInt()):
@@ -138,8 +153,8 @@ class Frame:
         self.AddRect(self.missile, 4, 8, .5)
 
       still_enemies = []
-      for mask in masks:
-        x = (dx + 48 + 8 + 16 * i) % 256;
+      for mask in self.masks:
+        x = self.sdx + 16 * i
         y = 108
         while mask:
           if mask % 2:
@@ -167,37 +182,65 @@ class Frame:
     else:
       return 1
 
+  # TODO: call this in Game.Step()
   def AddPrev(self, prev_frames):
     if not RAW_IMAGE:
       self.data = []
 
+      # missile y
       if self.missile.y < 200:
         self.data.append(self.missile.y / 200.0)
       else:
         self.data.append(0)
 
-      closest = []
+      # galaxian x
+      galaxian = self.galaxian
+      self.data.append((galaxian.x - 128) / 128.0)
+
+      # closest still enemies dx relative to galaxian
+      # one for left, one for right, and vx.
+      sl = (-1000, 0)
+      sr = (+1000, 0)
+      for i in xrange(len(self.masks)):
+        mask = self.masks[i]
+        if mask:
+          x = self.sdx + 16 * i
+          num = NumBits(mask)
+          if x <= galaxian.x and x > sl[0]:
+            sl = (x, num)
+          if x >= galaxian.x and x < sr[0]:
+            sr = (x, num)
+      svx = 0
+      for f in reversed(prev_frames):
+        if f.sdx != self.sdx:
+          svx = Sign(self.sdx - f.sdx)
+          break
+      self.data += [min(galaxian.x-sl[0],32)/32., sl[1] / 7.]
+      self.data += [min(sr[0]-galaxian.x,32)/32., sr[1] / 7.]
+      self.data.append(svx)
+
+      # closest incoming enemy x, y relative to galaxian, and vx, vy
+      ci = []
       if self.incoming_enemies:
         eid, e = max(self.incoming_enemies.items(), key = lambda p: p[1].y)
-        dx = (e.x - self.galaxian.x) / 256.0
-        dy = (e.y - self.galaxian.y) / 200.0
-        closest += [dx, dy]
+        dx = (e.x - galaxian.x) / 256.0
+        dy = (e.y - galaxian.y) / 200.0
+        ci += [dx, dy]
         if prev_frames:
           prev = prev_frames[0]
           if eid in prev.incoming_enemies:
             pe = prev.incoming_enemies[eid]
-            dx = (pe.x - e.x) / 256.0
-            dy = (pe.y - e.y) / 200.0
-            closest += [dx, dy]
-        if len(closest) == 2:
-          closest += [0, 0]
+            dx = (e.x - pe.x) / 256.0
+            dy = (e.y - pe.y) / 200.0
+            ci += [dx, dy]
+        if len(ci) == 2:
+          ci += [0, 0]
       else:
-        closest = [3, 3, 3, 3]
-      self.data += closest
+        ci = [3, 3, 3, 3]
+      self.data += ci
 
-      self.data += OneHot(WIDTH, self.galaxian.x / DX)
-
-      hmap = [0.] * WIDTH
+      # hit map
+      hmap = [0.] * (WIDTH * 2)
       if prev_frames:
         prev = prev_frames[0]  # TODO: use furthest frame with same enemies/bullets
         steps = len(prev_frames)
@@ -208,18 +251,18 @@ class Frame:
             if pe.y < e.y < y:
               x = (e.x-pe.x)*1.0/(e.y-pe.y)*(y-pe.y)+pe.x
               t = (y-e.y)*1.0/(e.y-pe.y)*steps
-              hmap[max(0, min(WIDTH-1, int(round(x))/DX))] += max(0., 1.-t/24.)
+              hmap[max(0, min(2*WIDTH-1, int(round(x-galaxian.x+256))/DX))] += max(0., 1.-t/24.)
         for eid, e in self.bullets.iteritems():
           if eid in prev.bullets:
             pe = prev.bullets[eid]
             if pe.y < e.y < y:
               x = (e.x-pe.x)*1.0/(e.y-pe.y)*(y-pe.y)+pe.x
               t = (y-e.y)*1.0/(e.y-pe.y)*steps
-              hmap[max(0, min(WIDTH-1, int(round(x))/DX))] += max(0., 1.-t/12.)
+              hmap[max(0, min(2*WIDTH-1, int(round(x-galaxian.x+256))/DX))] += max(0., 1.-t/12.)
       self.data += hmap
 
       if not self.terminal:
-        ix = self.galaxian.x / DX
+        ix = galaxian.x / DX
         self.reward -= min(1., hmap[ix]) * .5
 
       assert len(self.data) == INPUT_DIM

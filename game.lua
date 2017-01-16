@@ -41,7 +41,7 @@ end
 -- Enemies standing still (encoded).
 function GetStillEnemiesEncoded()
   local ret = {}
-  ret[#ret+1] = memory.readbyte(0xE5)
+  ret[#ret+1] = (memory.readbyte(0xE5) + 56) % 256
   for i=0,9 do
     local mask = memory.readbyte(0xC3 + i)
     ret[#ret+1] = mask
@@ -271,18 +271,17 @@ function Show(recent_games, genome)
     end
     local pg = recent_games[4]
     if pg ~= nil then
+      local y = Y2-16
       for _, b in pairs(g.bullets) do
         local pb = FindBullet(pg, b.id)
-        if pb ~= nil and pb.y < b.y and b.y < Y2 then
-          local y = Y2-16
+        if pb ~= nil and pb.y < b.y and b.y < y then
           local x = (b.x-pb.x)/(b.y-pb.y)*(y-pb.y)+pb.x
           gui.drawline(x, y, b.x, b.y, 'yellow')
         end
       end
       for _, e in pairs(g.incoming_enemies) do
         local pe = FindIncomingEnemies(pg, e.id)
-        if pe ~= nil and pe.y < e.y and e.y < Y2 then
-          local y = Y2-16
+        if pe ~= nil and pe.y < e.y and e.y < y then
           local x = (e.x-pe.x)/(e.y-pe.y)*(y-pe.y)+pe.x
           gui.drawline(x, y, e.x, e.y, 'red')
         end

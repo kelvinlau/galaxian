@@ -259,6 +259,7 @@ while true do
   max_score = math.max(max_score, reward_sum)
 
   if terminal then
+    emu.print("Score: " .. g.score)
     if math.random() < 0.1 then
       savestate.load(INIT_STATE)
     else
