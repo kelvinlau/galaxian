@@ -8,8 +8,7 @@ Double Q Learning: https://arxiv.org/pdf/1509.06461v3.pdf
 TODO: Save png to verify input data.
 TODO: Training the model only on score increases?
 TODO: T shape sensors.
-TODO: One more layer.
-TODO: -1 on out-of-bound hmap tiles.
+TODO: More sensors around galaxian.
 """
 
 from __future__ import print_function
@@ -65,7 +64,7 @@ DOUBLE_Q = True
 GAMMA = 0.99
 FINAL_EPSILON = 0.01 if DOUBLE_Q else 0.1
 INITIAL_EPSILON = 1.0
-EXPLORE_STEPS = 1000000
+EXPLORE_STEPS = 2000000
 OBSERVE_STEPS = 5000
 REPLAY_MEMORY = 100000 if not RAW_IMAGE else 2000  # 2000 = ~6G memory
 MINI_BATCH_SIZE = 32
@@ -201,9 +200,10 @@ class Frame:
           prev = prev_frames[0]
           if eid in prev.incoming_enemies:
             pe = prev.incoming_enemies[eid]
-            dx = (e.x - pe.x) / 256.0
-            dy = (e.y - pe.y) / 200.0
-            ci += [dx, dy]
+            if pe.y <= e.y:
+              dx = (e.x - pe.x) / 256.0
+              dy = (e.y - pe.y) / 200.0
+              ci += [dx, dy]
         if len(ci) == 2:
           ci += [0, 0]
       else:
@@ -211,30 +211,40 @@ class Frame:
       self.data += ci
 
       # hit map
-      hmap = [0.] * (WIDTH * 2)
+      def ix(x):
+        return max(0, min(2*WIDTH-1, int(round(x-galaxian.x+256))/DX))
+      # out-of-bound tiles have 1 damage.
+      # TODO: in-bound but edge tiles should have some damange?
+      hmap = [0. if ix(0) <= i <= ix(255) else 1. for i in range(WIDTH*2)]
       if prev_frames:
-        prev = prev_frames[0]  # TODO: use furthest frame with same enemies/bullets
         steps = len(prev_frames)
         y = 206  # galaxian top y
         for eid, e in self.incoming_enemies.iteritems():
-          if eid in prev.incoming_enemies:
-            pe = prev.incoming_enemies[eid]
-            if pe.y < e.y < y:
-              x = (e.x-pe.x)*1.0/(e.y-pe.y)*(y-pe.y)+pe.x
-              t = (y-e.y)*1.0/(e.y-pe.y)*steps
-              hmap[max(0, min(2*WIDTH-1, int(round(x-galaxian.x+256))/DX))] += max(0., 1.-t/24.)
+          pe = None  # the furthest frame having this enemy
+          for pf in prev_frames:
+            if eid in pf.incoming_enemies:
+              pe = pf.incoming_enemies[eid]
+              break
+          if pe and pe.y < e.y < y:
+            x = (e.x-pe.x)*1.0/(e.y-pe.y)*(y-pe.y)+pe.x
+            t = (y-e.y)*1.0/(e.y-pe.y)*steps
+            hmap[ix(x)] += max(0., 1.-t/24.)
         for eid, e in self.bullets.iteritems():
-          if eid in prev.bullets:
-            pe = prev.bullets[eid]
-            if pe.y < e.y < y:
-              x = (e.x-pe.x)*1.0/(e.y-pe.y)*(y-pe.y)+pe.x
-              t = (y-e.y)*1.0/(e.y-pe.y)*steps
-              hmap[max(0, min(2*WIDTH-1, int(round(x-galaxian.x+256))/DX))] += max(0., 1.-t/12.)
+          pe = None  # the furthest frame having this enemy
+          for pf in prev_frames:
+            if eid in pf.bullets:
+              pe = pf.bullets[eid]
+              break
+          if pe and pe.y < e.y < y:
+            x = (e.x-pe.x)*1.0/(e.y-pe.y)*(y-pe.y)+pe.x
+            t = (y-e.y)*1.0/(e.y-pe.y)*steps
+            hmap[ix(x)] += max(0., 1.-t/12.)
       self.data += hmap
+      #print(ix(0), ix(255), galaxian.x,
+      #      'hmap [', ''.join(['x' if h > 0 else '_' for h in hmap]), ']')
 
       if not self.terminal:
-        ix = galaxian.x / DX
-        self.reward -= min(1., hmap[ix]) * .5
+        self.reward -= min(1., hmap[ix(galaxian.x)]) * .5
 
       assert len(self.data) == INPUT_DIM
       self.datax = np.array(self.data)
@@ -381,20 +391,19 @@ class NeuralNetwork:
         self.input = tf.placeholder(tf.float32, [None, INPUT_DIM])
         print('input:', self.input.get_shape())
 
-        # Fully connected 1.
-        self.w1 = var([INPUT_DIM, 16])
-        self.b1 = var([16])
-        fc1 = tf.nn.relu(tf.matmul(self.input, self.w1) + self.b1)
+        N1 = 32
+        N2 = 16
+        N3 = 16
 
-        # Fully connected 2.
-        self.w2 = var([16, 8])
-        self.b2 = var([8])
-        fc2 = tf.nn.relu(tf.matmul(fc1, self.w2) + self.b2)
+        fc1 = tf.nn.relu(tf.matmul(self.input, var([INPUT_DIM, N1])) +
+                         var([N1]))
 
-        # Output.
-        self.w3 = var([8, OUTPUT_DIM])
-        self.b3 = var([OUTPUT_DIM])
-        self.output = (tf.matmul(fc2, self.w3) + self.b3)
+        fc2 = tf.nn.relu(tf.matmul(fc1, var([N1, N2])) + var([N2]))
+
+        fc3 = tf.nn.relu(tf.matmul(fc2, var([N2, N3])) + var([N3]))
+
+        self.output = (tf.matmul(fc3, var([N3, OUTPUT_DIM])) +
+                       var([OUTPUT_DIM]))
       else:
         # Input image.
         self.input = tf.placeholder(tf.float32,
@@ -439,7 +448,7 @@ class NeuralNetwork:
         self.output = (tf.matmul(fc4, self.w5) + self.b5)
 
     self.theta = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope=name)
-    assert len(self.theta) == (10 if RAW_IMAGE else 6), len(self.theta)
+    assert len(self.theta) == (10 if RAW_IMAGE else 8), len(self.theta)
 
     if trainable:
       # Training.
@@ -500,6 +509,7 @@ class NeuralNetwork:
 
 def FormatList(l):
   return '[' + ' '.join(['%7.3f' % x for x in l]) + ']'
+
 
 def main(unused_argv):
   port = flags.port
