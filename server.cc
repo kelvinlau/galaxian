@@ -57,7 +57,8 @@ class Server {
 
     CHECK(GetState().lifes == 2);
 
-    int prev_score = 0;
+    int prev_score = -1;
+    int reward_sum = 0;
     int max_score = 0;
 
     for (int step = 1; ; ++step) {
@@ -83,18 +84,21 @@ class Server {
       }
 
       const State s = GetState();
-      if (!terminal) {
+      if (!terminal && prev_score >= 0) {
         reward = s.score - prev_score;
       }
       Respond(seq, s, reward, terminal, input);
 
       prev_score = s.score;
-      max_score = std::max(max_score, s.score);
+      reward_sum += reward;
+      max_score = std::max(max_score, reward_sum);
 
       if (terminal) {
         Emulator::Load(random() < 0.05 ? &beginning : &reload);
         LOG(INFO) << " Step " << step << " Max score: " << max_score
                   << " Score: " << s.score;
+        prev_score = -1;
+        reward_sum = 0;
       }
     }
   }
