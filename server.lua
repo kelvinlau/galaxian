@@ -7,6 +7,7 @@ require("game")
 
 SHOW_AI_VISION = false
 SHOW_OBJECTS = false
+SHOW_PROJ = false
 SHOW_STILL_ENEMIES = false
 
 ---- Responding ----
@@ -97,6 +98,18 @@ function ReadControl(client)
   return ctrl, seq
 end
 
+---- start handshake ----
+
+function Start(client)
+  local line, err = client:receive()
+  if err ~= nil then
+    emu.print(err)
+    emu.message(err)
+    return
+  end
+  client:send("ack\n")
+end
+
 ---- UI ----
 
 function ShowScore(score, max_score)
@@ -160,6 +173,7 @@ handles[dialogs] = iup.dialog{iup.vbox{
       function (self)
         SHOW_AI_VISION = not SHOW_AI_VISION
         SHOW_OBJECTS = not SHOW_OBJECTS
+        SHOW_PROJ = not SHOW_PROJ
       end
   },
   iup.button{
@@ -196,6 +210,8 @@ local client = server:accept()
 
 local recent_games = {}
 local reward_sum = 0
+
+Start(client)
 
 while true do
   if math.random() < 0.01 then

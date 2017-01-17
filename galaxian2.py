@@ -176,6 +176,7 @@ class Frame:
         if mask:
           x = self.sdx + 16 * i
           num = NumBits(mask)
+          # TODO: relative to missile x instead?
           if x <= galaxian.x and x > sl[0]:
             sl = (x, num)
           if x >= galaxian.x and x < sr[0]:

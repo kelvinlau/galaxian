@@ -4,6 +4,7 @@ SHOW_GRID = false
 SHOW_COOR = false
 SHOW_TILE_MAP = false
 SHOW_OBJECTS = false
+SHOW_PROJ = true
 SHOW_STILL_ENEMIES = true
 SHOW_BANNER = false
 SHOW_AI_VISION = false
@@ -273,6 +274,9 @@ function Show(recent_games, genome)
     if not SHOW_AI_VISION then
       gui.drawbox(g.galaxian.x - 4, g.galaxian.y, g.galaxian.x + 4, g.galaxian.y + 8, 'green')
     end
+  end
+
+  if SHOW_PROJ then
     local pg = recent_games[4]
     if pg ~= nil then
       local y = Y2-16
@@ -280,14 +284,16 @@ function Show(recent_games, genome)
         local pb = FindBullet(pg, b.id)
         if pb ~= nil and pb.y < b.y and b.y < y then
           local x = (b.x-pb.x)/(b.y-pb.y)*(y-pb.y)+pb.x
-          gui.drawline(x, y, b.x, b.y, 'yellow')
+          --gui.drawline(x, y, b.x, b.y, 'yellow')
+          gui.drawbox(x-2, y-2, x+2, y+2, 'yellow')
         end
       end
       for _, e in pairs(g.incoming_enemies) do
         local pe = FindIncomingEnemies(pg, e.id)
         if pe ~= nil and pe.y < e.y and e.y < y then
           local x = (e.x-pe.x)/(e.y-pe.y)*(y-pe.y)+pe.x
-          gui.drawline(x, y, e.x, e.y, 'red')
+          --gui.drawline(x, y, e.x, e.y, 'red')
+          gui.drawbox(x-2, y-2, x+2, y+2, 'red')
         end
       end
     end
