@@ -9,8 +9,6 @@ SHOW_AI_VISION = false
 SHOW_OBJECTS = false
 SHOW_STILL_ENEMIES = false
 
-SMALL_MODE = false
-
 ---- Responding ----
 
 function Respond(client, seq, g, action, reward, terminal)
@@ -230,10 +228,6 @@ while true do
       reward = -1
       terminal = true
       break
-    elseif SMALL_MODE and #g.incoming_enemies > 1 then
-      reward = 1
-      terminal = true
-      break
     end
   end
 
@@ -251,13 +245,7 @@ while true do
   recent_games[0] = g
   local action = ToAction(control)
   if not terminal then
-    if SMALL_MODE then
-      if Hit(recent_games) then
-        reward = 1
-      end
-    else
-      reward = g.score - recent_games[2].score
-    end
+    reward = g.score - recent_games[2].score
   end
   Respond(client, seq, g, action, reward, terminal)
 
