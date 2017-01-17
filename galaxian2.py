@@ -354,9 +354,12 @@ class Game:
     assert frame.seq == self._seq, 'Expecting %d, got %d' % (self._seq,
         frame.seq)
 
-    self._prev_frames.append(frame)
-    if len(self._prev_frames) > 4:
-      self._prev_frames.popleft()
+    if frame.terminal:
+      self._prev_frames.clear()
+    else:
+      self._prev_frames.append(frame)
+      if len(self._prev_frames) > 4:
+        self._prev_frames.popleft()
 
     return frame
 
