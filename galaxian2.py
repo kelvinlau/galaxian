@@ -118,7 +118,7 @@ def Sign(x):
 
 
 class Frame:
-  def __init__(self, line):
+  def __init__(self, line, prev_frames):
     """Parse a Frame from a line."""
     self._tokens = line.split()
     self._idx = 0
@@ -155,46 +155,6 @@ class Frame:
       bid = self.NextInt()
       self.bullets[bid] = self.NextPoint()
 
-    if RAW_IMAGE:
-      self.data = np.zeros((WIDTH, HEIGHT))
-
-      self.AddRect(galaxian, 16, 16, .5)
-
-      if self.missile.y < 200:
-        self.AddRect(self.missile, 4, 8, .5)
-
-      still_enemies = []
-      for mask in self.masks:
-        x = self.sdx + 16 * i
-        y = 108
-        while mask:
-          if mask % 2:
-            still_enemies.append(Point(x, y))
-          mask /= 2
-          y -= 12
-      assert len(still_enemies) <= 46
-      for e in still_enemies:
-        self.AddRect(e, 8, 12)
-
-      for e in self.incoming_enemies.values():
-        self.AddRect(e, 8, 12)
-
-      for b in self.bullets.values():
-        self.AddRect(b, 4, 12)
-
-      self.data = cv2.resize(self.data, (SIDE, SIDE))
-
-  @staticmethod
-  def InvertX(dx):
-    if dx > 0:
-      return (256 - dx) / 256.0
-    elif dx < 0:
-      return (-256 - dx) / 256.0
-    else:
-      return 1
-
-  # TODO: call this in Game.Step()
-  def AddPrev(self, prev_frames):
     if not RAW_IMAGE:
       self.data = []
 
@@ -279,6 +239,34 @@ class Frame:
       assert len(self.data) == INPUT_DIM
       self.datax = np.array(self.data)
     else:
+      self.data = np.zeros((WIDTH, HEIGHT))
+
+      self.AddRect(galaxian, 16, 16, .5)
+
+      if self.missile.y < 200:
+        self.AddRect(self.missile, 4, 8, .5)
+
+      still_enemies = []
+      for mask in self.masks:
+        x = self.sdx + 16 * i
+        y = 108
+        while mask:
+          if mask % 2:
+            still_enemies.append(Point(x, y))
+          mask /= 2
+          y -= 12
+      assert len(still_enemies) <= 46
+      for e in still_enemies:
+        self.AddRect(e, 8, 12)
+
+      for e in self.incoming_enemies.values():
+        self.AddRect(e, 8, 12)
+
+      for b in self.bullets.values():
+        self.AddRect(b, 4, 12)
+
+      self.data = cv2.resize(self.data, (SIDE, SIDE))
+
       if not prev_frames:
         self.datax = np.reshape(self.data, (SIDE, SIDE, 1))
         for i in xrange(NUM_SNAPSHOTS-1):
@@ -292,6 +280,15 @@ class Frame:
             np.reshape(self.data, (SIDE, SIDE, 1)),
             prev_frame.datax[:, :, :NUM_SNAPSHOTS-1],
             axis = 2)
+
+  @staticmethod
+  def InvertX(dx):
+    if dx > 0:
+      return (256 - dx) / 256.0
+    elif dx < 0:
+      return (-256 - dx) / 256.0
+    else:
+      return 1
 
   def NextToken(self):
     self._idx += 1
@@ -326,6 +323,7 @@ class Game:
     self._sock.connect(('localhost', port))
     self._fin = self._sock.makefile()
     self._seq = 0
+    self._prev_frames = deque()
 
   def Start(self):
     self._sock.send('galaxian:start\n')
@@ -340,10 +338,14 @@ class Game:
 
     line = self._fin.readline().strip()
 
-    frame = Frame(line)
+    frame = Frame(line, self._prev_frames)
 
     assert frame.seq == self._seq, 'Expecting %d, got %d' % (self._seq,
         frame.seq)
+
+    self._prev_frames.append(frame)
+    if len(self._prev_frames) > 4:
+      self._prev_frames.popleft()
 
     return frame
 
@@ -511,9 +513,7 @@ def main(unused_argv):
   tnn = NeuralNetwork('tnn', trainable=False)
   game = Game(port)
   game.Start()
-  prev_frames = deque()
   frame = game.Step('_')
-  frame.AddPrev(prev_frames)
 
   with tf.Session() as sess:
     sess.run(tf.global_variables_initializer())
@@ -544,7 +544,6 @@ def main(unused_argv):
         action = ACTION_NAMES[np.argmax(q_val)]
 
       frame1 = game.Step(action)
-      frame1.AddPrev(prev_frames)
 
       action_val = np.zeros([OUTPUT_DIM], dtype=np.int)
       action_val[frame1.action_id] = 1
@@ -557,10 +556,6 @@ def main(unused_argv):
         memoryx.append((frame, action_val, frame1))
         if len(memoryx) > REPLAY_MEMORY:
           memoryx.popleft()
-
-      prev_frames.append(frame1)
-      if len(prev_frames) > 4:
-        prev_frames.popleft()
 
       if steps % TRAIN_INTERVAL == 0 and steps > OBSERVE_STEPS:
         mini_batch = random.sample(memory, min(len(memory), MINI_BATCH_SIZE))
