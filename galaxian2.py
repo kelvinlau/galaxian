@@ -32,8 +32,7 @@ parser.add_option('--rom', default='./galaxian.nes',
                   help='galaxian nes rom file')
 parser.add_option('--port', default=62343, type='int',
                   help='server port to connect')
-parser.add_option('--play', action='store_true', default=False,
-                  help='play instead of train')
+parser.add_option('--eps', default=1.0, type='float', help='initial epsilon')
 flags, _ = parser.parse_args()
 
 
@@ -63,7 +62,6 @@ OUTPUT_DIM = len(ACTION_NAMES)
 DOUBLE_Q = True
 GAMMA = 0.99
 FINAL_EPSILON = 0.01 if DOUBLE_Q else 0.1
-INITIAL_EPSILON = 1.0
 EXPLORE_STEPS = 2000000
 OBSERVE_STEPS = 5000
 REPLAY_MEMORY = 100000 if not RAW_IMAGE else 2000  # 2000 = ~6G memory
@@ -555,7 +553,7 @@ def main(unused_argv):
     tnn.CopyFrom(sess, nn)
 
     steps = 0
-    initial_epsilon = 0. if flags.play else INITIAL_EPSILON
+    initial_epsilon = flags.eps
     epsilon = initial_epsilon
     cost = 1e9
     y_val = 1e9
