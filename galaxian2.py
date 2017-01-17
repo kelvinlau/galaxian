@@ -51,7 +51,8 @@ if RAW_IMAGE:
 else:
   DX = 8
   WIDTH = 256 / DX
-  INPUT_DIM = 1 + 1 + 5 + 4 + 2 * WIDTH
+  FOCUS = 16
+  INPUT_DIM = 3 + (2*FOCUS+3) + 4 + 2*WIDTH + (2*FOCUS)
 
 
 ACTION_NAMES = ['_', 'L', 'R', 'A', 'l', 'r']
@@ -70,7 +71,7 @@ TRAIN_INTERVAL = 1
 UPDATE_TARGET_NETWORK_INTERVAL = 10000
 
 # Checkpoint.
-CHECKPOINT_DIR = 'galaxian2n/'
+CHECKPOINT_DIR = 'galaxian2o/'
 CHECKPOINT_FILE = 'model.ckpt'
 SAVE_INTERVAL = 10000
 
@@ -161,30 +162,45 @@ class Frame:
       else:
         self.data.append(0)
 
+      # fired or not
+      fired = 0
+      if prev_frames:
+        pv = prev_frames[-1]
+        if pv.missile.y >= 200 and pv.action in ['A', 'l', 'r']:
+          fired = 1
+      self.data.append(fired)
+      #print('fired', fired, 'missile', self.missile.y)
+
       # galaxian x
       galaxian = self.galaxian
       self.data.append((galaxian.x - 128) / 128.0)
 
-      # closest still enemies dx relative to galaxian
-      # one for left, one for right, and vx.
-      sl = (-1000, 0)
-      sr = (+1000, 0)
+      # still enemies dx relative to galaxian in focus region, and vx.
+      smap = [0.] * (2*FOCUS)
+      x1 = galaxian.x - FOCUS
+      x2 = galaxian.x + FOCUS
+      sl = 0
+      sr = 0
       for i in xrange(len(self.masks)):
         mask = self.masks[i]
         if mask:
-          x = self.sdx + 16 * i
+          ex = self.sdx + 16 * i
           num = NumBits(mask)
-          # TODO: relative to missile x instead?
-          if x <= galaxian.x and x > sl[0]:
-            sl = (x, num)
-          if x >= galaxian.x and x < sr[0]:
-            sr = (x, num)
+          for x in xrange(max(ex-4, x1), min(ex+4, x2)):
+            smap[x-x1] += num / 7.
+          if ex < x1:
+            sl = 1
+          if ex >= x2:
+            sr = 1
       svx = 0
       if prev_frames:
         svx = Sign(self.sdx - prev_frames[-1].sdx)
-      self.data += [min(galaxian.x-sl[0],32)/32., sl[1] / 7.]
-      self.data += [min(sr[0]-galaxian.x,32)/32., sr[1] / 7.]
+      self.data += smap
+      self.data.append(sl)
+      self.data.append(sr)
       self.data.append(svx)
+      #print('smap [', ''.join(['x' if h > 0 else '_' for h in smap]), ']',
+      #      sl, sr, svx)
 
       # closest incoming enemy x, y relative to galaxian, and vx, vy
       ci = []
@@ -209,10 +225,11 @@ class Frame:
 
       # hit map
       def ix(x):
-        return max(0, min(2*WIDTH-1, int(round(x-galaxian.x+256))/DX))
-      # out-of-bound tiles have 1 damage.
-      # TODO: in-bound but edge tiles should have some damange?
+        return max(0, min(2*WIDTH-1, (x-galaxian.x+256)/DX))
+      # out-of-bound tiles have penality.
+      # TODO: in-bound but edge tiles should have some penality?
       hmap = [0. if ix(0) <= i <= ix(255) else 1. for i in range(WIDTH*2)]
+      fmap = [0. if 0 <= i+x1 < 256 else 1. for i in range(FOCUS*2)]
       if prev_frames:
         steps = len(prev_frames)
         y = 214  # galaxian middle y
@@ -223,9 +240,12 @@ class Frame:
               pe = pf.incoming_enemies[eid]
               break
           if pe and pe.y < e.y < y:
-            x = (e.x-pe.x)*1.0/(e.y-pe.y)*(y-pe.y)+pe.x
+            x = int(round((e.x-pe.x)*1.0/(e.y-pe.y)*(y-pe.y)+pe.x))
             t = (y-e.y)*1.0/(e.y-pe.y)*steps
-            hmap[ix(x)] += max(0., 1.-t/24.)
+            hit = max(0., 1.-t/24.)
+            hmap[ix(x)] += hit
+            if x1 <= x < x2:
+              fmap[x-x1] += hit
         for eid, e in self.bullets.iteritems():
           pe = None  # the furthest frame having this enemy
           for pf in prev_frames:
@@ -233,12 +253,16 @@ class Frame:
               pe = pf.bullets[eid]
               break
           if pe and pe.y < e.y < y:
-            x = (e.x-pe.x)*1.0/(e.y-pe.y)*(y-pe.y)+pe.x
+            x = int(round((e.x-pe.x)*1.0/(e.y-pe.y)*(y-pe.y)+pe.x))
             t = (y-e.y)*1.0/(e.y-pe.y)*steps
-            hmap[ix(x)] += max(0., 1.-t/12.)
+            hit = max(0., 1.-t/12.)
+            hmap[ix(x)] += hit
+            if x1 <= x < x2:
+              fmap[x-x1] += hit
       self.data += hmap
-      #print(ix(0), ix(255), galaxian.x,
-      #      'hmap [', ''.join(['x' if h > 0 else '_' for h in hmap]), ']')
+      self.data += fmap
+      #print('hmap [', ''.join(['x' if h > 0 else '_' for h in hmap]), ']')
+      #print('fmap [', ''.join(['x' if h > 0 else '_' for h in fmap]), ']')
 
       if not self.terminal:
         self.reward -= min(1., hmap[ix(galaxian.x)]) * .5
@@ -338,7 +362,6 @@ class Game:
 
   def Step(self, action):
     # Don't hold the A button.
-    # TODO: put this into the features instead.
     if self._prev_frames:
       pv = self._prev_frames[-1]
       if pv.missile.y >= 200 and pv.action in ['A', 'l', 'r']:
