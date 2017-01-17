@@ -55,9 +55,9 @@ else:
   INPUT_DIM = 1 + 1 + 5 + 4 + 2 * WIDTH
 
 
-ACTION_NAMES = ['_', 'L', 'R', 'A']
+ACTION_NAMES = ['_', 'L', 'R', 'A', 'l', 'r']
 ACTION_ID = {ACTION_NAMES[i]: i for i in xrange(len(ACTION_NAMES))}
-OUTPUT_DIM = len(ACTION_NAMES)  # TODO(kelvinlau): 6?
+OUTPUT_DIM = len(ACTION_NAMES)
 
 # Hyperparameters.
 DOUBLE_Q = True
@@ -589,7 +589,7 @@ def main(unused_argv):
                                global_step = steps)
         print("Saved to", save_path)
 
-      print("Step %d epsilon: %.6f nn: %s q: %-33s action: %s reward: %5.2f "
+      print("Step %d epsilon: %.6f nn: %s q: %-49s action: %s reward: %5.2f "
           "cost: %8.3f y: %8.3f" %
           (steps, epsilon, FormatList(nn.CheckSum()), FormatList(q_val),
             frame1.action, frame1.reward, cost, y_val))

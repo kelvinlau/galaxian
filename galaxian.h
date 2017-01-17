@@ -127,12 +127,18 @@ bool IsDead() {
 
 char ToAction(uint8 input) {
   // RLDUTSBA
-  if (input & 0x01) return 'A';
-  if ((input & 0xB0) == 0xB0) return '_';
-  if (input & 0x40) return 'L';
-  if (input & 0x80) return 'R';
-  if (input & ~0xB1) return '?';
-  return '_';
+  const bool a = (input & 0x01);
+  const bool l = (input & 0x40);
+  const bool r = (input & 0x80);
+  if (a) {
+    if (l) return 'l';
+    if (r) return 'r';
+    return 'A';
+  } else {
+    if (l) return 'L';
+    if (r) return 'R';
+    return '_';
+  }
 }
 
 uint8 ToInput(char action) {
@@ -140,8 +146,10 @@ uint8 ToInput(char action) {
     case 'L': return 0x40;
     case 'R': return 0x80;
     case 'A': return 0x01;
+    case 'l': return 0x41;
+    case 'r': return 0x81;
   }
-  return 0;
+  return 0x00;
 }
 
 void SkipFrames(int frames) {

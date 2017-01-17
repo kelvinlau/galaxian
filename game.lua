@@ -146,14 +146,18 @@ function IsDead()
 end
 
 function ToAction(controls)
-  if controls["A"] then
-    return "A"
-  elseif controls["left"] and not controls["right"] then
-    return "L"
-  elseif not controls["left"] and controls["right"] then
-    return "R"
+  local a = controls['A']
+  local l = controls['left']
+  local r = controls['right']
+  if a then
+    if l then return 'l' end
+    if r then return 'r' end
+    return 'A'
+  else
+    if l then return 'L' end
+    if r then return 'R' end
+    return '_'
   end
-  return "_"
 end
 
 function InSight(sight, t)

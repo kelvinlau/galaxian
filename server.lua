@@ -87,6 +87,12 @@ function ReadControl(client)
       ctrl['left'] = true
     elseif action == 'R' then
       ctrl['right'] = true
+    elseif action == 'l' then
+      ctrl['left'] = true
+      ctrl['A'] = true
+    elseif action == 'r' then
+      ctrl['right'] = true
+      ctrl['A'] = true
     end
   end
 
