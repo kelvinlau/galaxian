@@ -182,10 +182,8 @@ class Frame:
           if x >= galaxian.x and x < sr[0]:
             sr = (x, num)
       svx = 0
-      for f in reversed(prev_frames):
-        if f.sdx != self.sdx:
-          svx = Sign(self.sdx - f.sdx)
-          break
+      if prev_frames:
+        svx = Sign(self.sdx - prev_frames[-1].sdx)
       self.data += [min(galaxian.x-sl[0],32)/32., sl[1] / 7.]
       self.data += [min(sr[0]-galaxian.x,32)/32., sr[1] / 7.]
       self.data.append(svx)
