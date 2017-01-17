@@ -341,6 +341,18 @@ class Game:
     assert self._fin.readline().strip() == 'ack'
 
   def Step(self, action):
+    # Don't hold the A button.
+    # TODO: put this into the features instead.
+    if self._prev_frames:
+      pv = self._prev_frames[-1]
+      if pv.missile.y >= 200 and pv.action in ['A', 'l', 'r']:
+        if action == 'A':
+          action = '_'
+        elif action == 'l':
+          action = 'L'
+        elif action == 'r':
+          action = 'R'
+
     self._seq += 1
     #print()
     #print(action, self._seq)
