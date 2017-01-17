@@ -279,7 +279,7 @@ function Show(recent_games, genome)
   if SHOW_PROJ then
     local pg = recent_games[4]
     if pg ~= nil then
-      local y = Y2-16
+      local y = Y2-8
       for _, b in pairs(g.bullets) do
         local pb = FindBullet(pg, b.id)
         if pb ~= nil and pb.y < b.y and b.y < y then

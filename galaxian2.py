@@ -219,7 +219,7 @@ class Frame:
       hmap = [0. if ix(0) <= i <= ix(255) else 1. for i in range(WIDTH*2)]
       if prev_frames:
         steps = len(prev_frames)
-        y = 206  # galaxian top y
+        y = 214  # galaxian middle y
         for eid, e in self.incoming_enemies.iteritems():
           pe = None  # the furthest frame having this enemy
           for pf in prev_frames:
