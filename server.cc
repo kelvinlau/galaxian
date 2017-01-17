@@ -89,11 +89,11 @@ class Server {
       }
       Respond(seq, s, reward, terminal, input);
 
-      prev_score = s.score;
-      reward_sum += reward;
-      max_score = std::max(max_score, reward_sum);
-
-      if (terminal) {
+      if (!terminal) {
+        prev_score = s.score;
+        reward_sum += reward;
+        max_score = std::max(max_score, reward_sum);
+      } else {
         Emulator::Load(random() < 0.05 ? &beginning : &reload);
         LOG(INFO) << " Step " << step << " Max score: " << max_score
                   << " Score: " << s.score << " rewards: " << reward_sum;

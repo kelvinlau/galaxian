@@ -265,10 +265,10 @@ while true do
   end
   Respond(client, seq, g, action, reward, terminal)
 
-  reward_sum = reward_sum + reward
-  max_score = math.max(max_score, reward_sum)
-
-  if terminal then
+  if not terminal then
+    reward_sum = reward_sum + reward
+    max_score = math.max(max_score, reward_sum)
+  else
     emu.print("Score: " .. g.score .. " rewards: " .. reward_sum)
     if math.random() < 0.1 then
       savestate.load(INIT_STATE)
