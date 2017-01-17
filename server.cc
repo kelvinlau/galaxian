@@ -15,22 +15,10 @@
 #include "emulator.h"
 #include "galaxian.h"
 
-using std::cerr;
-using std::cout;
-
 int64 Now() {
   struct timeval tv;
   gettimeofday(&tv, NULL);
   return tv.tv_sec * (int64)1000000 + tv.tv_usec;
-}
-
-string NowStr() {
-  using namespace std::chrono;
-  system_clock::time_point p = system_clock::now();
-  time_t t = system_clock::to_time_t(p);
-  string ret = std::ctime(&t);
-  ret.pop_back();  // Get rid of '\n'
-  return ret;
 }
 
 class Timer {
@@ -39,8 +27,7 @@ class Timer {
 
   ~Timer() {
     int64 end = Now();
-    cerr << name_ << ": " << (end - start_) << " " << start_ << " " << end
-         << "\n";
+    LOG(INFO) << name_ << ": " << (end - start_) << " " << start_ << " " << end;
   }
 
  private:
@@ -55,10 +42,10 @@ class Server {
   explicit Server(int port) : port_(port) {}
 
   void Loop() {
-    cout << "Running Galaxian server\n";
-    cout.flush();
+    LOG(INFO) << "Running Galaxian server";
 
     InitSocket();
+    RecvStart();
 
     SkipMenu();
 
@@ -74,9 +61,6 @@ class Server {
     int max_score = 0;
 
     for (int step = 1; ; ++step) {
-      //cout << "\n";
-      //Timer timer(StringPrintf("Step %d", step));
-
       if (random() < 0.01) {
         Emulator::Save(&reload);
       }
@@ -103,15 +87,14 @@ class Server {
         reward = s.score - prev_score;
       }
       Respond(seq, s, reward, terminal, input);
-      //cout << "Missile:" << s.missile.x << "," << s.missile.y << "\n";
 
       prev_score = s.score;
       max_score = std::max(max_score, s.score);
 
       if (terminal) {
         Emulator::Load(random() < 0.05 ? &beginning : &reload);
-        cout << NowStr() << " Step " << step << " Max score: " << max_score
-             << " Score: " << s.score << "\n";
+        LOG(INFO) << " Step " << step << " Max score: " << max_score
+                  << " Score: " << s.score;
       }
     }
   }
@@ -123,34 +106,36 @@ class Server {
     sin.sin_family = AF_INET;
     sin.sin_port = htons(port_);
     sockfd_ = socket(AF_INET, SOCK_STREAM, 0);
-    if (sockfd_ == -1) {
-      cerr << "INVALID socket\n";
-      abort();
-    }
-    if (::bind(sockfd_, (sockaddr *)&sin, sizeof(sin))) {
-      cerr << "Failed to bind\n";
-      abort();
-    }
+    CHECK_NE(-1, sockfd_) << "INVALID socket";
+    CHECK(::bind(sockfd_, (sockaddr*)&sin, sizeof(sin)) == 0)
+        << "Failed to bind to port " << port_;
     listen(sockfd_, 1);
 
     socklen_t sizeof_sin = sizeof(sin);
     sockfd_ = accept(sockfd_, (sockaddr*)&sin, &sizeof_sin);
-    if (sockfd_ == -1) {
-      cerr << "Sock accept failed\n";
-      abort();
-    }
+    CHECK_NE(-1, sockfd_) << "Sock accept failed";
+  }
+
+  void RecvBuffer() {
+    buffer_.resize(256);
+    ssize_t size = recv(sockfd_, &buffer_[0], buffer_.size(), 0);
+    CHECK_GT(size, 0);
+    buffer_.resize(size);
+    buffer_.pop_back();
+  }
+
+  void RecvStart() {
+    do {
+      RecvBuffer();
+    } while (buffer_ != "galaxian:start");
+
+    buffer_ = "ack";
+    SendBuffer();
   }
 
   void RecvInput(uint8* input, int* seq) {
     //Timer timer("Recv");
-    buffer_.resize(256);
-    ssize_t size = recv(sockfd_, &buffer_[0], buffer_.size(), 0);
-    if (size <= 0) {
-      cerr << "Recv size: " << size << "\n";
-      abort();
-    }
-    buffer_.resize(size);
-    // cerr << "Recv: " << buffer_ << "\n";
+    RecvBuffer();
     char action;
     sscanf(buffer_.c_str(), "%c %d", &action, seq);
     *input = ToInput(action);
@@ -196,11 +181,8 @@ class Server {
 
   void SendBuffer() {
     buffer_.push_back('\n');
-    //cerr << "Send: " << buffer_.size() << " bytes\n";
-    if (send(sockfd_, buffer_.data(), buffer_.size(), 0) < 0) {
-      fprintf(stderr, "Send failed\n");
-      abort();
-    }
+    CHECK_GE(send(sockfd_, buffer_.data(), buffer_.size(), 0), 0)
+        << "Send failed";
     buffer_.clear();
   }
 
@@ -212,19 +194,16 @@ class Server {
 }  // namespace galaxian
 
 int main(int argc, char *argv[]) {
-  //cout.sync_with_stdio(false);
+  CHECK_EQ(3, argc);
 
-  Emulator::Initialize("galaxian.nes");
+  CHECK(Emulator::Initialize(argv[1]));
 
-  const int port = argc > 1 ? atoi(argv[1]) : 62343;
+  const int port = atoi(argv[2]);
   galaxian::Server server(port);
   server.Loop();
 
   Emulator::Shutdown();
-
-  // exit the infrastructure
   FCEUI_Kill();
 
-  fprintf(stderr, "SUCCESS.\n");
   return 0;
 }

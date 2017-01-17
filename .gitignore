@@ -1,16 +1,9 @@
 *.pool
-*.in
-*.ctrl
-*.frames
 *.ckpt*
 *.cpk*
 **/checkpoint
 galaxian_test
 server
 *.nes
-*.basis
-*.fm2
 *.o
 auxlib.lua
-**/BUILD
-*.borg

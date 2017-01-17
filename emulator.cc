@@ -18,10 +18,6 @@
 #include "base/logging.h"
 #include "city.h"
 
-#ifdef CITY_NAMESPACE
-using util_hash::CityHash64WithSeed;
-#endif
-
 using std::pair;
 using std::unordered_map;
 

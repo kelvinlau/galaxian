@@ -6,9 +6,10 @@ https://www.nervanasys.com/demystifying-deep-reinforcement-learning/
 Double Q Learning: https://arxiv.org/pdf/1509.06461v3.pdf
 
 TODO: Save png to verify input data.
-TODO: Scale down the image by 2x.
-TODO: Random no-op actions at the start of episodes.
-TODO: Training the model only on score increases.
+TODO: Training the model only on score increases?
+TODO: T shape sensors.
+TODO: One more layer.
+TODO: -1 on out-of-bound hmap tiles.
 """
 
 from __future__ import print_function
@@ -20,16 +21,21 @@ import random
 import time
 import math
 import socket
-import cv2
+import subprocess
+#import cv2
 import numpy as np
 import tensorflow as tf
 
 
 parser = OptionParser()
-parser.add_option('--port', default=62343, help='server port to connect')
+parser.add_option('--server', help='cc server binary')
+parser.add_option('--rom', default='./galaxian.nes',
+                  help='galaxian nes rom file')
+parser.add_option('--port', default=62343, type='int',
+                  help='server port to connect')
 parser.add_option('--play', action='store_true', default=False,
                   help='play instead of train')
-options, args = parser.parse_args()
+flags, _ = parser.parse_args()
 
 
 # Game input/output.
@@ -58,7 +64,7 @@ OUTPUT_DIM = len(ACTION_NAMES)  # TODO(kelvinlau): 6?
 DOUBLE_Q = True
 GAMMA = 0.99
 FINAL_EPSILON = 0.01 if DOUBLE_Q else 0.1
-INITIAL_EPSILON = FINAL_EPSILON if options.play else 1.0
+INITIAL_EPSILON = 1.0
 EXPLORE_STEPS = 1000000
 OBSERVE_STEPS = 5000
 REPLAY_MEMORY = 100000 if not RAW_IMAGE else 2000  # 2000 = ~6G memory
@@ -315,11 +321,15 @@ class Frame:
 
 
 class Game:
-  def __init__(self):
+  def __init__(self, port):
     self._sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    self._sock.connect(('localhost', options.port))
+    self._sock.connect(('localhost', port))
     self._fin = self._sock.makefile()
     self._seq = 0
+
+  def Start(self):
+    self._sock.send('galaxian:start\n')
+    assert self._fin.readline().strip() == 'ack'
 
   def Step(self, action):
     self._seq += 1
@@ -328,7 +338,7 @@ class Game:
 
     self._sock.send(action + ' ' + str(self._seq) + '\n')
 
-    line = self.NextLine()
+    line = self._fin.readline().strip()
 
     frame = Frame(line)
 
@@ -336,9 +346,6 @@ class Game:
         frame.seq)
 
     return frame
-
-  def NextLine(self):
-    return self._fin.readline().strip()
 
 
 def TestGame():
@@ -358,7 +365,7 @@ def TestGame():
 
 def ClippedError(x):
   # Huber loss
-  return tf.select(tf.abs(x) < 1.0, 0.5 * tf.square(x), tf.abs(x) - 0.5)
+  return tf.where(tf.abs(x) < 1.0, 0.5 * tf.square(x), tf.abs(x) - 0.5)
 
 
 class NeuralNetwork:
@@ -436,7 +443,7 @@ class NeuralNetwork:
       # Training.
       self.action = tf.placeholder(tf.float32, [None, OUTPUT_DIM])
       self.y = tf.placeholder(tf.float32, [None])
-      q_action = tf.reduce_sum(tf.mul(self.output, self.action),
+      q_action = tf.reduce_sum(tf.multiply(self.output, self.action),
           reduction_indices = 1)
       self.cost = tf.reduce_mean(ClippedError(q_action - self.y))
       self.optimizer = tf.train.RMSPropOptimizer(
@@ -492,12 +499,18 @@ class NeuralNetwork:
 def FormatList(l):
   return '[' + ' '.join(['%7.3f' % x for x in l]) + ']'
 
-def Run():
+def main(unused_argv):
+  port = flags.port
+  if flags.server:
+    server = subprocess.Popen([flags.server, flags.rom, str(port)])
+    time.sleep(1)
+
   memory = deque()
   memoryx = deque()
   nn = NeuralNetwork('nn')
   tnn = NeuralNetwork('tnn', trainable=False)
-  game = Game()
+  game = Game(port)
+  game.Start()
   prev_frames = deque()
   frame = game.Step('_')
   frame.AddPrev(prev_frames)
@@ -518,7 +531,8 @@ def Run():
     tnn.CopyFrom(sess, nn)
 
     steps = 0
-    epsilon = INITIAL_EPSILON
+    initial_epsilon = 0. if flags.play else INITIAL_EPSILON
+    epsilon = initial_epsilon
     cost = 1e9
     y_val = 1e9
     while True:
@@ -558,7 +572,7 @@ def Run():
       steps += 1
 
       if epsilon > FINAL_EPSILON:
-        epsilon -= (INITIAL_EPSILON - FINAL_EPSILON) / EXPLORE_STEPS
+        epsilon -= (initial_epsilon - FINAL_EPSILON) / EXPLORE_STEPS
 
       if steps % UPDATE_TARGET_NETWORK_INTERVAL == 0:
         print('Target network before:', tnn.CheckSum())
@@ -577,4 +591,4 @@ def Run():
 
 
 if __name__ == '__main__':
-  Run()
+  main([])
