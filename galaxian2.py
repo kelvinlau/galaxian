@@ -52,7 +52,7 @@ else:
   DX = 8
   WIDTH = 256 / DX
   FOCUS = 16
-  INPUT_DIM = 3 + (2*FOCUS+3) + 4 + 2*WIDTH + (2*FOCUS)
+  INPUT_DIM = 3 + (2*FOCUS+3) + 4*NUM_INCOMING_ENEMIES + 2*WIDTH + (2*FOCUS)
 
 
 ACTION_NAMES = ['_', 'L', 'R', 'A', 'l', 'r']
@@ -71,7 +71,7 @@ TRAIN_INTERVAL = 1
 UPDATE_TARGET_NETWORK_INTERVAL = 10000
 
 # Checkpoint.
-CHECKPOINT_DIR = 'galaxian2o/'
+CHECKPOINT_DIR = 'galaxian2p/'
 CHECKPOINT_FILE = 'model.ckpt'
 SAVE_INTERVAL = 10000
 
@@ -202,13 +202,13 @@ class Frame:
       #print('smap [', ''.join(['x' if h > 0 else '_' for h in smap]), ']',
       #      sl, sr, svx)
 
-      # closest incoming enemy x, y relative to galaxian, and vx, vy
-      ci = []
-      if self.incoming_enemies:
-        eid, e = max(self.incoming_enemies.items(), key = lambda p: p[1].y)
+      # incoming enemy x, y relative to galaxian, and vx, vy
+      ies = []
+      for eid, e in sorted(
+          self.incoming_enemies.items(), key = lambda p: p[1].y):
         dx = (e.x - galaxian.x) / 256.0
         dy = (e.y - galaxian.y) / 200.0
-        ci += [dx, dy]
+        ie = [dx, dy]
         if prev_frames:
           prev = prev_frames[0]
           if eid in prev.incoming_enemies:
@@ -216,12 +216,13 @@ class Frame:
             if pe.y <= e.y:
               dx = (e.x - pe.x) / 256.0
               dy = (e.y - pe.y) / 200.0
-              ci += [dx, dy]
-        if len(ci) == 2:
-          ci += [0, 0]
-      else:
-        ci = [3, 3, 3, 3]
-      self.data += ci
+              ie += [dx, dy]
+        if len(ie) == 2:
+          ie += [0, 0]
+        ies += ie
+      ies += [3, 3, 3, 3] * (NUM_INCOMING_ENEMIES-len(ies)/4)
+      #print('ies', FormatList(ies))
+      self.data += ies
 
       # hit map
       def ix(x):
