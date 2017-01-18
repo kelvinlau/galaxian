@@ -10,7 +10,6 @@ TODO: Training the model only on score increases?
 TODO: 2D sensors.
 TODO: Enemy type.
 TODO: in-bound but edge tiles should have some penality?
-TODO: More snapshots for incoming enemy curve.
 """
 
 from __future__ import print_function
@@ -42,19 +41,19 @@ flags, _ = parser.parse_args()
 NUM_STILL_ENEMIES = 10
 NUM_INCOMING_ENEMIES = 6
 NUM_BULLETS = 6
-
 RAW_IMAGE = False
 if RAW_IMAGE:
+  NUM_SNAPSHOTS = 4
   SCALE = 2
   WIDTH = 256/SCALE
   HEIGHT = 240/SCALE
   SIDE = 84
-  NUM_SNAPSHOTS = 4
 else:
   DX = 8
   WIDTH = 256 / DX
   FOCUS = 16
-  INPUT_DIM = 4 + (2*FOCUS+3) + 4*NUM_INCOMING_ENEMIES + 2*WIDTH + (2*FOCUS)
+  NUM_SNAPSHOTS = 5
+  INPUT_DIM = 4 + (2*FOCUS+3) + 2*NUM_SNAPSHOTS*NUM_INCOMING_ENEMIES + 2*WIDTH + (2*FOCUS)
 
 
 ACTION_NAMES = ['_', 'L', 'R', 'A', 'l', 'r']
@@ -74,7 +73,7 @@ TRAIN_INTERVAL = 1
 UPDATE_TARGET_NETWORK_INTERVAL = 10000
 
 # Checkpoint.
-CHECKPOINT_DIR = 'galaxian2q/'
+CHECKPOINT_DIR = 'galaxian2r/'
 CHECKPOINT_FILE = 'model.ckpt'
 SAVE_INTERVAL = 10000
 
@@ -216,18 +215,22 @@ class Frame:
         dx = (e.x - galaxian.x) / 256.0
         dy = (e.y - galaxian.y) / 200.0
         ie = [dx, dy]
-        if prev_frames:
-          prev = prev_frames[0]
-          if eid in prev.incoming_enemies:
-            pe = prev.incoming_enemies[eid]
-            if pe.y <= e.y:
-              dx = (e.x - pe.x) / 256.0
-              dy = (e.y - pe.y) / 200.0
-              ie += [dx, dy]
-        if len(ie) == 2:
-          ie += [0, 0]
-        ies += ie
-      ies += [3, 3, 0, 0] * (NUM_INCOMING_ENEMIES-len(ies)/4)
+        for pf in reversed(prev_frames):
+          if eid not in pf.incoming_enemies:
+            break
+          pe = pf.incoming_enemies[eid]
+          if abs(pe.y - e.y) > 100:
+            break
+          vx = (e.x - pe.x) / 256.0
+          vy = (e.y - pe.y) / 200.0
+          ie += [vx, vy]
+          e = pe
+        assert len(ie) <= 2*NUM_SNAPSHOTS
+        ie += [0, 0] * (NUM_SNAPSHOTS - len(ie)/2)
+        ies.append(ie)
+      for i in xrange(NUM_INCOMING_ENEMIES-len(ies)):
+        ies.append([3, 3] + [0, 0] * (NUM_SNAPSHOTS-1))
+      ies = sum(ies, [])  # flatten
       #print('ies', FormatList(ies))
       self.data += ies
 
@@ -404,7 +407,7 @@ class Game:
       self._prev_frames.clear()
     else:
       self._prev_frames.append(frame)
-      if len(self._prev_frames) > 4:
+      if len(self._prev_frames) > NUM_SNAPSHOTS-1:
         self._prev_frames.popleft()
 
     return frame
