@@ -130,7 +130,7 @@ function GetGame()
   local g = {}
   g.galaxian = {}
   g.galaxian.x = (memory.readbyte(0xE4) + 128) % 256
-  g.galaxian.y = Y2
+  g.galaxian.y = Y2-8
   g.still_enemies_encoded = GetStillEnemiesEncoded()
   g.still_enemies = GetStillEnemies()
   g.incoming_enemies = GetIncomingEnemies()
@@ -220,7 +220,7 @@ function Show(recent_games, genome)
   if SHOW_AI_VISION then
     -- missile aimming ray
     if g.missile.y == 200 then
-      gui.drawline(g.galaxian.x, g.sight.y1, g.galaxian.x, g.sight.y2, 'red')
+      gui.drawline(g.galaxian.x, 42, g.galaxian.x, g.galaxian.y, 'red')
     end
     -- galaxian
     gui.drawbox(g.galaxian.x-2, g.galaxian.y-2, g.galaxian.x+2, g.galaxian.y+2, 'green', 'clear')
@@ -279,7 +279,7 @@ function Show(recent_games, genome)
   if SHOW_PROJ then
     local pg = recent_games[4]
     if pg ~= nil then
-      local y = Y2-8
+      local y = g.galaxian.y
       for _, b in pairs(g.bullets) do
         local pb = FindBullet(pg, b.id)
         if pb ~= nil and pb.y < b.y and b.y < y then
@@ -289,9 +289,14 @@ function Show(recent_games, genome)
         end
       end
       for _, e in pairs(g.incoming_enemies) do
+        local x = nil
         local pe = FindIncomingEnemies(pg, e.id)
         if pe ~= nil and pe.y < e.y and e.y < y then
-          local x = (e.x-pe.x)/(e.y-pe.y)*(y-pe.y)+pe.x
+          x = (e.x-pe.x)/(e.y-pe.y)*(y-pe.y)+pe.x
+        elseif y <= e.y and e.y < y + 12 then
+          x = e.x
+        end
+        if x ~= nil then
           --gui.drawline(x, y, e.x, e.y, 'red')
           gui.drawbox(x-2, y-2, x+2, y+2, 'red')
         end

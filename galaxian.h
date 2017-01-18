@@ -110,7 +110,7 @@ int GetScore() {
 State GetState() {
   State s;
   s.galaxian.x = (RAM[0xE4] + 128) % 256;
-  s.galaxian.y = 222;
+  s.galaxian.y = 214;
   //s.still_enemies = GetStillEnemies();
   s.still_enemies_encoded = GetStillEnemiesEncoded();
   s.incoming_enemies = GetIncomingEnemies();

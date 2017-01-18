@@ -7,8 +7,10 @@ Double Q Learning: https://arxiv.org/pdf/1509.06461v3.pdf
 
 TODO: Save png to verify input data.
 TODO: Training the model only on score increases?
-TODO: T shape sensors.
-TODO: More sensors around galaxian.
+TODO: 2D sensors.
+TODO: Enemy type.
+TODO: in-bound but edge tiles should have some penality?
+TODO: More snapshots for incoming enemy curve.
 """
 
 from __future__ import print_function
@@ -52,7 +54,7 @@ else:
   DX = 8
   WIDTH = 256 / DX
   FOCUS = 16
-  INPUT_DIM = 3 + (2*FOCUS+3) + 4*NUM_INCOMING_ENEMIES + 2*WIDTH + (2*FOCUS)
+  INPUT_DIM = 4 + (2*FOCUS+3) + 4*NUM_INCOMING_ENEMIES + 2*WIDTH + (2*FOCUS)
 
 
 ACTION_NAMES = ['_', 'L', 'R', 'A', 'l', 'r']
@@ -72,7 +74,7 @@ TRAIN_INTERVAL = 1
 UPDATE_TARGET_NETWORK_INTERVAL = 10000
 
 # Checkpoint.
-CHECKPOINT_DIR = 'galaxian2p/'
+CHECKPOINT_DIR = 'galaxian2q/'
 CHECKPOINT_FILE = 'model.ckpt'
 SAVE_INTERVAL = 10000
 
@@ -136,6 +138,10 @@ class Frame:
     self.galaxian = galaxian
 
     self.missile = self.NextPoint()
+    # penalty on miss
+    # XXX: this may break if frame skip setting is change (currently 5).
+    if self.missile.y <= 4:
+      self.reward -= 0.1
 
     # still enemies (encoded)
     self.sdx = self.NextInt()
@@ -157,7 +163,8 @@ class Frame:
     if not RAW_IMAGE:
       self.data = []
 
-      # missile y
+      # missile x, y
+      self.data.append((self.missile.x - galaxian.x) / 256.0)
       if self.missile.y < 200:
         self.data.append(self.missile.y / 200.0)
       else:
@@ -173,7 +180,6 @@ class Frame:
       #print('fired', fired, 'missile', self.missile.y)
 
       # galaxian x
-      galaxian = self.galaxian
       self.data.append((galaxian.x - 128) / 128.0)
 
       # still enemies dx relative to galaxian in focus region, and vx.
@@ -221,7 +227,7 @@ class Frame:
         if len(ie) == 2:
           ie += [0, 0]
         ies += ie
-      ies += [3, 3, 3, 3] * (NUM_INCOMING_ENEMIES-len(ies)/4)
+      ies += [3, 3, 0, 0] * (NUM_INCOMING_ENEMIES-len(ies)/4)
       #print('ies', FormatList(ies))
       self.data += ies
 
@@ -229,25 +235,32 @@ class Frame:
       def ix(x):
         return max(0, min(2*WIDTH-1, (x-galaxian.x+256)/DX))
       # out-of-bound tiles have penality.
-      # TODO: in-bound but edge tiles should have some penality?
       hmap = [0. if ix(0) <= i <= ix(255) else 1. for i in range(WIDTH*2)]
       fmap = [0. if 0 <= i+x1 < 256 else 1. for i in range(FOCUS*2)]
+      def fill_fmap(ex, hit):
+        for x in range(max(ex-4, x1), min(ex+4, x2)):
+          fmap[x-x1] += hit
       if prev_frames:
         steps = len(prev_frames)
-        y = 214  # galaxian middle y
+        y = galaxian.y
         for eid, e in self.incoming_enemies.iteritems():
           pe = None  # the furthest frame having this enemy
           for pf in prev_frames:
             if eid in pf.incoming_enemies:
               pe = pf.incoming_enemies[eid]
               break
+          x, t = None, None
           if pe and pe.y < e.y < y:
             x = int(round((e.x-pe.x)*1.0/(e.y-pe.y)*(y-pe.y)+pe.x))
             t = (y-e.y)*1.0/(e.y-pe.y)*steps
+          elif y <= e.y < y + 12:
+            x = e.x
+            t = 0
+          if x is not None:
             hit = max(0., 1.-t/24.)
             hmap[ix(x)] += hit
             if x1 <= x < x2:
-              fmap[x-x1] += hit
+              fill_fmap(x, hit)
         for eid, e in self.bullets.iteritems():
           pe = None  # the furthest frame having this enemy
           for pf in prev_frames:
@@ -260,14 +273,14 @@ class Frame:
             hit = max(0., 1.-t/12.)
             hmap[ix(x)] += hit
             if x1 <= x < x2:
-              fmap[x-x1] += hit
+              fill_fmap(x, hit)
       self.data += hmap
       self.data += fmap
       #print('hmap [', ''.join(['x' if h > 0 else '_' for h in hmap]), ']')
       #print('fmap [', ''.join(['x' if h > 0 else '_' for h in fmap]), ']')
 
       if not self.terminal:
-        self.reward -= min(1., hmap[ix(galaxian.x)]) * .5
+        self.reward -= min(1., hmap[ix(galaxian.x)]) * .25
 
       assert len(self.data) == INPUT_DIM
       self.datax = np.array(self.data)
