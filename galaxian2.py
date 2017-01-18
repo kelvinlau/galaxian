@@ -32,7 +32,7 @@ parser.add_option('--rom', default='./galaxian.nes',
                   help='galaxian nes rom file')
 parser.add_option('--port', default=62343, type='int',
                   help='server port to connect')
-parser.add_option('--eps', default=1.0, type='float', help='initial epsilon')
+parser.add_option('--eps', type='float', help='initial epsilon')
 flags, _ = parser.parse_args()
 
 
@@ -62,6 +62,7 @@ OUTPUT_DIM = len(ACTION_NAMES)
 # Hyperparameters.
 DOUBLE_Q = True
 GAMMA = 0.99
+INITIAL_EPSILON = 1.0
 FINAL_EPSILON = 0.01 if DOUBLE_Q else 0.1
 EXPLORE_STEPS = 2000000
 OBSERVE_STEPS = 5000
@@ -547,6 +548,19 @@ def FormatList(l):
   return '[' + ' '.join(['%7.3f' % x for x in l]) + ']'
 
 
+class SavedVar:
+  def __init__(self, init_val, name):
+    self.var = tf.Variable(init_val, trainable=False, name=name)
+    self.input = tf.placeholder(self.var.dtype, self.var.get_shape())
+    self.assign = self.var.assign(self.input)
+
+  def Eval(self):
+    return self.var.eval()
+
+  def Assign(self, sess, val):
+    sess.run(self.assign, {self.input: val})
+
+
 def main(unused_argv):
   port = flags.port
   if flags.server:
@@ -561,10 +575,13 @@ def main(unused_argv):
   game.Start()
   frame = game.Step('_')
 
+  saved_step = SavedVar(0, 'step')
+  saved_epsilon = SavedVar(INITIAL_EPSILON, 'epsilon')
+
   with tf.Session() as sess:
     sess.run(tf.global_variables_initializer())
 
-    saver = tf.train.Saver(nn.Vars())
+    saver = tf.train.Saver(nn.Vars() + [saved_step.var, saved_epsilon.var])
     if not os.path.exists(CHECKPOINT_DIR):
       os.makedirs(CHECKPOINT_DIR)
     ckpt = tf.train.get_checkpoint_state(CHECKPOINT_DIR)
@@ -576,9 +593,8 @@ def main(unused_argv):
 
     tnn.CopyFrom(sess, nn)
 
-    steps = 0
-    initial_epsilon = flags.eps
-    epsilon = initial_epsilon
+    step = saved_step.Eval()
+    epsilon = flags.eps or saved_epsilon.Eval()
     cost = 1e9
     y_val = 1e9
     while True:
@@ -603,31 +619,33 @@ def main(unused_argv):
         if len(memoryx) > REPLAY_MEMORY:
           memoryx.popleft()
 
-      if steps % TRAIN_INTERVAL == 0 and steps > OBSERVE_STEPS:
+      if step % TRAIN_INTERVAL == 0 and step > OBSERVE_STEPS:
         mini_batch = random.sample(memory, min(len(memory), MINI_BATCH_SIZE))
         mini_batch += random.sample(memoryx, min(len(memoryx), MINI_BATCH_SIZE))
         mini_batch.append(memory[-1])
         cost, y_val = nn.Train(tnn, mini_batch)
 
       frame = frame1
-      steps += 1
+      step += 1
 
       if epsilon > FINAL_EPSILON:
-        epsilon -= (initial_epsilon - FINAL_EPSILON) / EXPLORE_STEPS
+        epsilon -= (INITIAL_EPSILON - FINAL_EPSILON) / EXPLORE_STEPS
 
-      if steps % UPDATE_TARGET_NETWORK_INTERVAL == 0:
+      if step % UPDATE_TARGET_NETWORK_INTERVAL == 0:
         print('Target network before:', tnn.CheckSum())
         tnn.CopyFrom(sess, nn)
         print('Target network after:', tnn.CheckSum())
 
-      if steps % SAVE_INTERVAL == 0:
+      if step % SAVE_INTERVAL == 0:
+        saved_step.Assign(sess, step)
+        saved_epsilon.Assign(sess, epsilon)
         save_path = saver.save(sess, CHECKPOINT_DIR + CHECKPOINT_FILE,
-                               global_step = steps)
+                               global_step = step)
         print("Saved to", save_path)
 
       print("Step %d epsilon: %.6f nn: %s q: %-49s action: %s reward: %5.2f "
           "cost: %8.3f y: %8.3f" %
-          (steps, epsilon, FormatList(nn.CheckSum()), FormatList(q_val),
+          (step, epsilon, FormatList(nn.CheckSum()), FormatList(q_val),
             frame1.action, frame1.reward, cost, y_val))
 
 
