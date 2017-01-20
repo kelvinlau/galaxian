@@ -35,6 +35,10 @@ class Timer {
   const time_t start_;
 };
 
+double Random() {
+  return (double)random() / RAND_MAX;
+}
+
 namespace galaxian {
 
 class Server {
@@ -63,7 +67,7 @@ class Server {
     int max_level = 0;
 
     for (int step = 1; ; ++step) {
-      if (random() < 0.01) {
+      if (Random() < 0.01) {
         Emulator::Save(&reload);
       }
 
@@ -101,7 +105,7 @@ class Server {
         reward_sum += reward;
         max_score = std::max(max_score, reward_sum);
       } else {
-        Emulator::Load(random() < 0.05 ? &beginning : &reload);
+        Emulator::Load(Random() < 0.05 ? &beginning : &reload);
         LOG(INFO) << " Step " << step << " Max score: " << max_score
                   << " Score: " << s.score << " rewards: " << reward_sum;
         prev_score = -1;
