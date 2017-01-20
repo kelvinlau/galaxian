@@ -106,8 +106,9 @@ class Server {
         max_score = std::max(max_score, reward_sum);
       } else {
         Emulator::Load(Random() < 0.05 ? &beginning : &reload);
-        LOG(INFO) << " Step " << step << " Max score: " << max_score
-                  << " Score: " << s.score << " rewards: " << reward_sum;
+        LOG(INFO) << " Step " << step << " Max level: " << max_level
+                  << " Max rewards: " << max_score << " Score: " << s.score
+                  << " rewards: " << reward_sum;
         prev_score = -1;
         reward_sum = 0;
       }
