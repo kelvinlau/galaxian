@@ -125,6 +125,10 @@ bool IsDead() {
   return RAM[0x41] != 0;
 }
 
+int GetLevel() {
+  return RAM[0x59];
+}
+
 char ToAction(uint8 input) {
   // RLDUTSBA
   const bool a = (input & 0x01);

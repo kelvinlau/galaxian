@@ -60,10 +60,17 @@ class Server {
     int prev_score = -1;
     int reward_sum = 0;
     int max_score = 0;
+    int max_level = 0;
 
     for (int step = 1; ; ++step) {
       if (random() < 0.01) {
         Emulator::Save(&reload);
+      }
+
+      if (GetLevel() > max_level && reward_sum > 2000) {
+        max_level = GetLevel();
+        Emulator::Save(&beginning);
+        LOG(INFO) << "Level " << max_level;
       }
 
       uint8 input;
