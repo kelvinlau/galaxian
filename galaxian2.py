@@ -9,7 +9,7 @@ TODO: Save png to verify input data.
 TODO: Training the model only on score increases?
 TODO: 2D sensors.
 TODO: Enemy type.
-TODO: in-bound but edge tiles should have some penality?
+TODO: Use a small separated nn for incoming enemy curves.
 """
 
 from __future__ import print_function
@@ -73,7 +73,7 @@ TRAIN_INTERVAL = 1
 UPDATE_TARGET_NETWORK_INTERVAL = 10000
 
 # Checkpoint.
-CHECKPOINT_DIR = 'galaxian2s/'
+CHECKPOINT_DIR = 'galaxian2t/'
 CHECKPOINT_FILE = 'model.ckpt'
 SAVE_INTERVAL = 10000
 
@@ -444,9 +444,9 @@ class NeuralNetwork:
         self.input = tf.placeholder(tf.float32, [None, INPUT_DIM])
         print('input:', self.input.get_shape())
 
-        N1 = 48
-        N2 = 32
-        N3 = 32
+        N1 = 32
+        N2 = 24
+        N3 = 16
 
         fc1 = tf.nn.relu(tf.matmul(self.input, var([INPUT_DIM, N1])) +
                          var([N1]))
