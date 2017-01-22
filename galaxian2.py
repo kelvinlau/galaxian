@@ -53,7 +53,8 @@ else:
   WIDTH = 256 / DX
   FOCUS = 16
   NUM_SNAPSHOTS = 5
-  INPUT_DIM = 4 + (2*FOCUS+3) + 2*NUM_SNAPSHOTS*NUM_INCOMING_ENEMIES + 2*WIDTH + (2*FOCUS)
+  NIE = 10
+  INPUT_DIM = 4 + (2*FOCUS+3) + NIE + 2*WIDTH + (2*FOCUS)
 
 
 ACTION_NAMES = ['_', 'L', 'R', 'A', 'l', 'r']
@@ -73,7 +74,7 @@ TRAIN_INTERVAL = 1
 UPDATE_TARGET_NETWORK_INTERVAL = 10000
 
 # Checkpoint.
-CHECKPOINT_DIR = 'galaxian2t/'
+CHECKPOINT_DIR = 'galaxian2u/'
 CHECKPOINT_FILE = 'model.ckpt'
 SAVE_INTERVAL = 10000
 
@@ -230,9 +231,7 @@ class Frame:
         ies.append(ie)
       for i in xrange(NUM_INCOMING_ENEMIES-len(ies)):
         ies.append([3, 3] + [0, 0] * (NUM_SNAPSHOTS-1))
-      ies = sum(ies, [])  # flatten
-      #print('ies', FormatList(ies))
-      self.data += ies
+      self.ies = ies
 
       # hit map
       def ix(x):
@@ -285,7 +284,7 @@ class Frame:
       if not self.terminal:
         self.reward -= min(1., hmap[ix(galaxian.x)]) * .25
 
-      assert len(self.data) == INPUT_DIM
+      assert len(self.data) == INPUT_DIM-NIE
       self.datax = np.array(self.data)
     else:
       self.data = np.zeros((WIDTH, HEIGHT))
@@ -440,9 +439,27 @@ class NeuralNetwork:
 
     with tf.variable_scope(name):
       if not RAW_IMAGE:
-        # Input.
-        self.input = tf.placeholder(tf.float32, [None, INPUT_DIM])
-        print('input:', self.input.get_shape())
+        # Input 1.
+        self.input1 = tf.placeholder(tf.float32, [None, INPUT_DIM-NIE])
+        print('input1:', self.input1.get_shape())
+
+        # Input 2.
+        self.ies = tf.placeholder(tf.float32,
+                                  [None, NUM_INCOMING_ENEMIES, 2*NUM_SNAPSHOTS])
+        ies0 = tf.reshape(self.ies, [-1, 2*NUM_SNAPSHOTS])
+        NIE1 = 8
+        ies1 = tf.nn.relu(tf.matmul(ies0, var([2*NUM_SNAPSHOTS, NIE1])) +
+                          var([NIE1]))
+        print('ies1', ies1.get_shape())
+        ies2 = tf.nn.relu(tf.matmul(ies1, var([NIE1, NIE])) + var([NIE]))
+        print('ies2', ies2.get_shape())
+        ies3 = tf.reshape(ies2, [-1, NUM_INCOMING_ENEMIES, NIE])
+        print('ies3', ies3.get_shape())
+        input2 = tf.reduce_sum(ies3, axis = 1)
+        print('input2', input2.get_shape())
+
+        self.input = tf.concat_v2([self.input1, input2], axis=1)
+        print('input', self.input.get_shape())
 
         N1 = 32
         N2 = 24
@@ -501,7 +518,7 @@ class NeuralNetwork:
         self.output = (tf.matmul(fc4, self.w5) + self.b5)
 
     self.theta = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope=name)
-    assert len(self.theta) == (10 if RAW_IMAGE else 8), len(self.theta)
+    assert len(self.theta) == (10 if RAW_IMAGE else 12), len(self.theta)
 
     if trainable:
       # Training.
@@ -518,7 +535,8 @@ class NeuralNetwork:
 
   def Eval(self, frames):
     return self.output.eval(feed_dict = {
-        self.input: [f.datax for f in frames]
+        self.input1: [f.datax for f in frames],
+        self.ies: [f.ies for f in frames]
     })
 
   def Train(self, tnn, mini_batch):
@@ -545,7 +563,8 @@ class NeuralNetwork:
           y_batch[i] = reward + GAMMA * t_q1_batch[i][np.argmax(q1_batch[i])]
 
     feed_dict = {
-        self.input: [f.datax for f in frame_batch],
+        self.input1: [f.datax for f in frame_batch],
+        self.ies: [f.ies for f in frame_batch],
         self.action: action_batch,
         self.y: y_batch,
     }
