@@ -88,7 +88,7 @@ class Server {
       for (int i = 0; i < 5; ++i) {
         Emulator::Step(input);
         if (IsDead()) {
-          reward = -1;
+          reward = 0;
           terminal = true;
           break;
         }

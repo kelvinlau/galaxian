@@ -73,7 +73,7 @@ TRAIN_INTERVAL = 1
 UPDATE_TARGET_NETWORK_INTERVAL = 10000
 
 # Checkpoint.
-CHECKPOINT_DIR = 'galaxian2r/'
+CHECKPOINT_DIR = 'galaxian2s/'
 CHECKPOINT_FILE = 'model.ckpt'
 SAVE_INTERVAL = 10000
 
@@ -125,8 +125,8 @@ class Frame:
 
     self.seq = self.NextInt()
 
-    # Cap reward in [-1, +1].
-    self.reward = max(-1, min(1, self.NextInt()))
+    # reward is sqrt of score/30 capped under 3.
+    self.reward = min(3, math.sqrt(self.NextInt()/30.0))
 
     self.terminal = self.NextInt()
 
@@ -444,9 +444,9 @@ class NeuralNetwork:
         self.input = tf.placeholder(tf.float32, [None, INPUT_DIM])
         print('input:', self.input.get_shape())
 
-        N1 = 32
-        N2 = 16
-        N3 = 16
+        N1 = 48
+        N2 = 32
+        N3 = 32
 
         fc1 = tf.nn.relu(tf.matmul(self.input, var([INPUT_DIM, N1])) +
                          var([N1]))
