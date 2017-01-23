@@ -13,7 +13,6 @@ TODO: Use a small separated nn for incoming enemy curves.
 TODO: In-bound but edge tiles should have some penality?
 TODO: Save on dangerous situations.
 TODO: Fewer layer.
-TODO: Dropout/Bayesian.
 TODO: LSTM.
 TODO: A3C.
 """
@@ -38,7 +37,7 @@ FLAGS = flags.FLAGS
 flags.DEFINE_string('server', '', 'server binary')
 flags.DEFINE_string('rom', './galaxian.nes', 'galaxian nes rom file')
 flags.DEFINE_float('eps', None, 'initial epsilon')
-flags.DEFINE_string('checkpoint_dir', 'galaxian2v', 'Checkpoint dir')
+flags.DEFINE_string('checkpoint_dir', 'galaxian2w', 'Checkpoint dir')
 flags.DEFINE_integer('port', 62343, 'server port to conenct')
 
 
@@ -442,6 +441,8 @@ class NeuralNetwork:
         tf.truncated_normal(shape, stddev=.02), trainable=trainable)
 
     with tf.variable_scope(name):
+      self.keep_prob = tf.placeholder(tf.float32)
+
       if not RAW_IMAGE:
         # Input 1.
         self.input1 = tf.placeholder(tf.float32, [None, INPUT_DIM-NIE])
@@ -454,8 +455,10 @@ class NeuralNetwork:
         NIE1 = 8
         ies1 = tf.nn.relu(tf.matmul(ies0, var([2*NUM_SNAPSHOTS, NIE1])) +
                           var([NIE1]))
+        ies1 = tf.nn.dropout(ies1, self.keep_prob)
         print('ies1', ies1.get_shape())
         ies2 = tf.nn.relu(tf.matmul(ies1, var([NIE1, NIE])) + var([NIE]))
+        ies2 = tf.nn.dropout(ies2, self.keep_prob)
         print('ies2', ies2.get_shape())
         ies3 = tf.reshape(ies2, [-1, NUM_INCOMING_ENEMIES, NIE])
         print('ies3', ies3.get_shape())
@@ -471,10 +474,13 @@ class NeuralNetwork:
 
         fc1 = tf.nn.relu(tf.matmul(self.input, var([INPUT_DIM, N1])) +
                          var([N1]))
+        fc1 = tf.nn.dropout(fc1, self.keep_prob)
 
         fc2 = tf.nn.relu(tf.matmul(fc1, var([N1, N2])) + var([N2]))
+        fc2 = tf.nn.dropout(fc2, self.keep_prob)
 
         fc3 = tf.nn.relu(tf.matmul(fc2, var([N2, N3])) + var([N3]))
+        fc3 = tf.nn.dropout(fc3, self.keep_prob)
 
         value = tf.matmul(fc3, var([N3, 1])) + var([1])
         advantage = tf.matmul(fc3, var([N3, OUTPUT_DIM])) + var([OUTPUT_DIM])
@@ -540,18 +546,19 @@ class NeuralNetwork:
   def Vars(self):
     return self.theta
 
-  def Eval(self, frames):
+  def Eval(self, frames, keep_prob):
     return self.output.eval(feed_dict = {
         self.input1: [f.datax for f in frames],
-        self.ies: [f.ies for f in frames]
+        self.ies: [f.ies for f in frames],
+        self.keep_prob: keep_prob,
     })
 
-  def Train(self, tnn, mini_batch):
+  def Train(self, tnn, mini_batch, keep_prob):
     frame_batch = [d[0] for d in mini_batch]
     action_batch = [d[1] for d in mini_batch]
     frame1_batch = [d[2] for d in mini_batch]
 
-    t_q1_batch = tnn.Eval(frame1_batch)
+    t_q1_batch = tnn.Eval(frame1_batch, keep_prob)
     y_batch = [0] * len(mini_batch)
     if not DOUBLE_Q:
       for i in xrange(len(mini_batch)):
@@ -561,7 +568,7 @@ class NeuralNetwork:
         else:
           y_batch[i] = reward + GAMMA * np.max(t_q1_batch[i])
     else:
-      q1_batch = self.Eval(frame1_batch)
+      q1_batch = self.Eval(frame1_batch, keep_prob)
       for i in xrange(len(mini_batch)):
         reward = frame1_batch[i].reward
         if frame1_batch[i].terminal:
@@ -574,6 +581,7 @@ class NeuralNetwork:
         self.ies: [f.ies for f in frame_batch],
         self.action: action_batch,
         self.y: y_batch,
+        self.keep_prob: keep_prob,
     }
     self.optimizer.run(feed_dict = feed_dict)
     return self.cost.eval(feed_dict = feed_dict), y_batch[-1]
@@ -641,12 +649,10 @@ def main(unused_argv):
     cost = 1e9
     y_val = 1e9
     while True:
-      if random.random() <= epsilon:
-        q_val = []
-        action = ACTION_NAMES[random.randrange(OUTPUT_DIM)]
-      else:
-        q_val = nn.Eval([frame])[0]
-        action = ACTION_NAMES[np.argmax(q_val)]
+      keep_prob = 1 - epsilon + FINAL_EPSILON
+
+      q_val = nn.Eval([frame], keep_prob)[0]
+      action = ACTION_NAMES[np.argmax(q_val)]
 
       frame1 = game.Step(action)
 
@@ -666,7 +672,7 @@ def main(unused_argv):
         mini_batch = random.sample(memory, min(len(memory), MINI_BATCH_SIZE))
         mini_batch += random.sample(memoryx, min(len(memoryx), MINI_BATCH_SIZE))
         mini_batch.append(memory[-1])
-        cost, y_val = nn.Train(tnn, mini_batch)
+        cost, y_val = nn.Train(tnn, mini_batch, keep_prob)
 
       frame = frame1
       step += 1
@@ -686,9 +692,9 @@ def main(unused_argv):
                                global_step = step)
         print("Saved to", save_path)
 
-      print("Step %d eps: %.6f nn: %s q: %-49s action: %s reward: %5.2f "
+      print("Step %d keep: %.6f nn: %s q: %-49s action: %s reward: %5.2f "
           "cost: %8.3f y: %8.3f" %
-          (step, epsilon, FormatList(nn.CheckSum()), FormatList(q_val),
+          (step, keep_prob, FormatList(nn.CheckSum()), FormatList(q_val),
             frame1.action, frame1.reward, cost, y_val))
 
 
