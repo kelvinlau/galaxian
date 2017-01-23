@@ -8,7 +8,7 @@ CC=g++
 
 INCLUDES=-I "cc-lib" -I "cc-lib/city" -I "."
 
-CPPFLAGS= -DSTD_STRING -DPSS_STYLE=1 -DDUMMY_UI -DHAVE_ASPRINTF -Wno-write-strings -m64 $(OPT) -DHAVE_ALLOCA -DNOWINSTUFF $(INCLUDES) --std=c++0x
+CPPFLAGS= -DSTD_STRING -DPSS_STYLE=1 -DDUMMY_UI -DHAVE_ASPRINTF -Wno-write-strings -m64 $(OPT) -DHAVE_ALLOCA -DNOWINSTUFF $(INCLUDES) --std=c++11
 
 CCLIBOBJECTS=cc-lib/util.o cc-lib/arcfour.o cc-lib/base/logging.o cc-lib/base/stringprintf.o cc-lib/city/city.o cc-lib/textsvg.o cc-lib/stb_image.o
 

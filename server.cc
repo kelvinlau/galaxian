@@ -9,11 +9,16 @@
 #include <sys/time.h>
 #include <sys/types.h>
 #include <netinet/in.h>
+#include <deque>
+#include <algorithm>
+#include <numeric>
 
 #include "base/logging.h"
 #include "base/stringprintf.h"
 #include "emulator.h"
 #include "galaxian.h"
+
+using std::deque;
 
 int64 Now() {
   struct timeval tv;
@@ -37,6 +42,16 @@ class Timer {
 
 double Random() {
   return (double)random() / RAND_MAX;
+}
+
+double Average(const deque<int>& x) {
+  return (double)std::accumulate(x.begin(), x.end(), 0) / x.size();
+}
+
+int Median(const deque<int>& x) {
+  auto x1 = x;
+  std::sort(x1.begin(), x1.end());
+  return x1[x1.size()/2];
 }
 
 namespace galaxian {
@@ -65,6 +80,7 @@ class Server {
     int reward_sum = 0;
     int max_score = 0;
     int max_level = 0;
+    deque<int> episode_rewards;
 
     for (int step = 1; ; ++step) {
       if (Random() < 0.01) {
@@ -106,9 +122,15 @@ class Server {
         max_score = std::max(max_score, reward_sum);
       } else {
         Emulator::Load(Random() < 0.2 ? &beginning : &reload);
-        LOG(INFO) << " Step " << step << " Max level: " << max_level
+        episode_rewards.push_back(reward_sum);
+        if (episode_rewards.size() > 100) {
+          episode_rewards.pop_front();
+        }
+        LOG(INFO) << " Seq " << seq << " Max level: " << max_level
                   << " Max rewards: " << max_score << " Score: " << s.score
-                  << " rewards: " << reward_sum;
+                  << " rewards: " << reward_sum << " last 100 avg: "
+                  << Average(episode_rewards) << " last 100 median: "
+                  << Median(episode_rewards);
         prev_score = -1;
         reward_sum = 0;
       }
