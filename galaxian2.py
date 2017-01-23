@@ -10,6 +10,13 @@ TODO: Training the model only on score increases?
 TODO: 2D sensors.
 TODO: Enemy type.
 TODO: Use a small separated nn for incoming enemy curves.
+TODO: In-bound but edge tiles should have some penality?
+TODO: Save on dangerous situations.
+TODO: Fewer layer.
+TODO: Dueling.
+TODO: Dropout/Bayesian.
+TODO: LSTM.
+TODO: A3C.
 """
 
 from __future__ import print_function
