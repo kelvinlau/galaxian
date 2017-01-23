@@ -3,7 +3,7 @@
 Ref:
 https://storage.googleapis.com/deepmind-media/dqn/DQNNaturePaper.pdf
 https://www.nervanasys.com/demystifying-deep-reinforcement-learning/
-Double Q Learning: https://arxiv.org/pdf/1509.06461v3.pdf
+https://medium.com/@awjuliani/simple-reinforcement-learning-with-tensorflow-part-4-deep-q-networks-and-beyond-8438a3e2b8df#.tithx7juq
 
 TODO: Save png to verify input data.
 TODO: Training the model only on score increases?
