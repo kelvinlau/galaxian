@@ -22,7 +22,6 @@ TODO: A3C.
 from __future__ import print_function
 from collections import defaultdict
 from collections import deque
-from optparse import OptionParser
 import os
 import random
 import time
@@ -34,14 +33,14 @@ import numpy as np
 import tensorflow as tf
 
 
-parser = OptionParser()
-parser.add_option('--server', help='cc server binary')
-parser.add_option('--rom', default='./galaxian.nes',
-                  help='galaxian nes rom file')
-parser.add_option('--port', default=62343, type='int',
-                  help='server port to connect')
-parser.add_option('--eps', type='float', help='initial epsilon')
-flags, _ = parser.parse_args()
+flags = tf.app.flags
+FLAGS = flags.FLAGS
+
+flags.DEFINE_string('server', '', 'server binary')
+flags.DEFINE_string('rom', './galaxian.nes', 'galaxian nes rom file')
+flags.DEFINE_float('eps', None, 'initial epsilon')
+flags.DEFINE_string('checkpoint_dir', 'galaxian2u', 'Checkpoint dir')
+flags.DEFINE_integer('port', 62343, 'server port to conenct')
 
 
 # Game input/output.
@@ -81,7 +80,6 @@ TRAIN_INTERVAL = 1
 UPDATE_TARGET_NETWORK_INTERVAL = 10000
 
 # Checkpoint.
-CHECKPOINT_DIR = 'galaxian2u/'
 CHECKPOINT_FILE = 'model.ckpt'
 SAVE_INTERVAL = 10000
 
@@ -604,9 +602,9 @@ class SavedVar:
 
 
 def main(unused_argv):
-  port = flags.port
-  if flags.server:
-    server = subprocess.Popen([flags.server, flags.rom, str(port)])
+  port = FLAGS.port
+  if FLAGS.server:
+    server = subprocess.Popen([FLAGS.server, FLAGS.rom, str(port)])
     time.sleep(1)
 
   memory = deque()
@@ -624,9 +622,10 @@ def main(unused_argv):
     sess.run(tf.global_variables_initializer())
 
     saver = tf.train.Saver(nn.Vars() + [saved_step.var, saved_epsilon.var])
-    if not os.path.exists(CHECKPOINT_DIR):
-      os.makedirs(CHECKPOINT_DIR)
-    ckpt = tf.train.get_checkpoint_state(CHECKPOINT_DIR)
+    checkpoint_dir = FLAGS.checkpoint_dir
+    if not os.path.exists(checkpoint_dir):
+      os.makedirs(checkpoint_dir)
+    ckpt = tf.train.get_checkpoint_state(checkpoint_dir)
     if ckpt and ckpt.model_checkpoint_path:
       saver.restore(sess, ckpt.model_checkpoint_path)
       print("Restored from", ckpt.model_checkpoint_path)
@@ -636,7 +635,7 @@ def main(unused_argv):
     tnn.CopyFrom(sess, nn)
 
     step = saved_step.Eval()
-    epsilon = flags.eps or saved_epsilon.Eval()
+    epsilon = FLAGS.eps or saved_epsilon.Eval()
     cost = 1e9
     y_val = 1e9
     while True:
@@ -681,7 +680,7 @@ def main(unused_argv):
       if step % SAVE_INTERVAL == 0:
         saved_step.Assign(sess, step)
         saved_epsilon.Assign(sess, epsilon)
-        save_path = saver.save(sess, CHECKPOINT_DIR + CHECKPOINT_FILE,
+        save_path = saver.save(sess, checkpoint_dir + CHECKPOINT_FILE,
                                global_step = step)
         print("Saved to", save_path)
 
@@ -692,4 +691,4 @@ def main(unused_argv):
 
 
 if __name__ == '__main__':
-  main([])
+  tf.app.run()
