@@ -13,7 +13,6 @@ TODO: Use a small separated nn for incoming enemy curves.
 TODO: In-bound but edge tiles should have some penality?
 TODO: Save on dangerous situations.
 TODO: Fewer layer.
-TODO: Dueling.
 TODO: Dropout/Bayesian.
 TODO: LSTM.
 TODO: A3C.
@@ -39,7 +38,7 @@ FLAGS = flags.FLAGS
 flags.DEFINE_string('server', '', 'server binary')
 flags.DEFINE_string('rom', './galaxian.nes', 'galaxian nes rom file')
 flags.DEFINE_float('eps', None, 'initial epsilon')
-flags.DEFINE_string('checkpoint_dir', 'galaxian2u', 'Checkpoint dir')
+flags.DEFINE_string('checkpoint_dir', 'galaxian2v', 'Checkpoint dir')
 flags.DEFINE_integer('port', 62343, 'server port to conenct')
 
 
@@ -71,7 +70,7 @@ OUTPUT_DIM = len(ACTION_NAMES)
 DOUBLE_Q = True
 GAMMA = 0.99
 INITIAL_EPSILON = 1.0
-FINAL_EPSILON = 0.01 if DOUBLE_Q else 0.1
+FINAL_EPSILON = 0.05 if DOUBLE_Q else 0.1
 EXPLORE_STEPS = 2000000
 OBSERVE_STEPS = 5000
 REPLAY_MEMORY = 100000 if not RAW_IMAGE else 2000  # 2000 = ~6G memory
@@ -477,8 +476,11 @@ class NeuralNetwork:
 
         fc3 = tf.nn.relu(tf.matmul(fc2, var([N2, N3])) + var([N3]))
 
-        self.output = (tf.matmul(fc3, var([N3, OUTPUT_DIM])) +
-                       var([OUTPUT_DIM]))
+        value = tf.matmul(fc3, var([N3, 1])) + var([1])
+        advantage = tf.matmul(fc3, var([N3, OUTPUT_DIM])) + var([OUTPUT_DIM])
+        # Simple dueling.
+        # TODO: Max dueling or avg dueling.
+        self.output = advantage + value
       else:
         # Input image.
         self.input = tf.placeholder(tf.float32,
@@ -523,7 +525,7 @@ class NeuralNetwork:
         self.output = (tf.matmul(fc4, self.w5) + self.b5)
 
     self.theta = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope=name)
-    assert len(self.theta) == (10 if RAW_IMAGE else 12), len(self.theta)
+    assert len(self.theta) == (10 if RAW_IMAGE else 14), len(self.theta)
 
     if trainable:
       # Training.
@@ -585,7 +587,7 @@ class NeuralNetwork:
 
 
 def FormatList(l):
-  return '[' + ' '.join(['%7.3f' % x for x in l]) + ']'
+  return '[' + ' '.join(['%6.2f' % x for x in l]) + ']'
 
 
 class SavedVar:
@@ -684,7 +686,7 @@ def main(unused_argv):
                                global_step = step)
         print("Saved to", save_path)
 
-      print("Step %d epsilon: %.6f nn: %s q: %-49s action: %s reward: %5.2f "
+      print("Step %d eps: %.6f nn: %s q: %-49s action: %s reward: %5.2f "
           "cost: %8.3f y: %8.3f" %
           (step, epsilon, FormatList(nn.CheckSum()), FormatList(q_val),
             frame1.action, frame1.reward, cost, y_val))
