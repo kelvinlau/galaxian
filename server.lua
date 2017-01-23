@@ -210,12 +210,19 @@ local client = server:accept()
 
 local recent_games = {}
 local reward_sum = 0
+local max_level = 0
 
 Start(client)
 
 while true do
   if math.random() < 0.01 then
     savestate.save(RELOAD_STATE)
+  end
+
+  if GetLevel() > max_level and reward_sum > 2000 then
+    max_level = GetLevel();
+    savestate.save(INIT_STATE)
+    emu.print('Level ' .. max_level)
   end
 
   local control = nil

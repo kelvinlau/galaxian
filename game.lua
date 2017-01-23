@@ -146,6 +146,10 @@ function IsDead()
   return memory.readbyte(0x41) ~= 0
 end
 
+function GetLevel()
+  return memory.readbyte(0x59)
+end
+
 function ToAction(controls)
   local a = controls['A']
   local l = controls['left']
