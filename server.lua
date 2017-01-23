@@ -248,7 +248,7 @@ while true do
     end
     g = GetGame()
     if IsDead() then
-      reward = -1
+      reward = 0
       terminal = true
       break
     end
