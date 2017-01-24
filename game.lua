@@ -74,7 +74,7 @@ end
 function GetBullets()
   local ret = {}
   local id = 0
-  for addr=0x28B,0x29F,0x4 do
+  for addr=0x287,0x29F,0x4 do
     local x = memory.readbyte(addr)
     local y = memory.readbyte(addr - 3)
     if x > 0 and y > 0 then

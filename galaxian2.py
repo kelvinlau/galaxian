@@ -44,7 +44,6 @@ flags.DEFINE_integer('port', 62343, 'server port to conenct')
 # Game input/output.
 NUM_STILL_ENEMIES = 10
 NUM_INCOMING_ENEMIES = 6
-NUM_BULLETS = 6
 RAW_IMAGE = False
 if RAW_IMAGE:
   NUM_SNAPSHOTS = 4

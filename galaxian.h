@@ -81,7 +81,7 @@ vector<int> GetStillEnemiesEncoded() {
 map<int, Point> GetBullets() {
   map<int, Point> ret;
   int id = 0;
-  for (int addr = 0x28B; addr <= 0x29F; addr += 4) {
+  for (int addr = 0x287; addr <= 0x29F; addr += 4) {
     int x = RAM[addr];
     int y = RAM[addr - 3];
     if (x > 0 and y > 0) {
