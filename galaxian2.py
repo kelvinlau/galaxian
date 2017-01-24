@@ -37,7 +37,7 @@ FLAGS = flags.FLAGS
 flags.DEFINE_string('server', '', 'server binary')
 flags.DEFINE_string('rom', './galaxian.nes', 'galaxian nes rom file')
 flags.DEFINE_float('eps', None, 'initial epsilon')
-flags.DEFINE_string('checkpoint_dir', 'galaxian2w/', 'Checkpoint dir')
+flags.DEFINE_string('checkpoint_dir', 'galaxian2x', 'Checkpoint dir')
 flags.DEFINE_integer('port', 62343, 'server port to conenct')
 
 
@@ -56,8 +56,9 @@ else:
   WIDTH = 256 / DX
   FOCUS = 16
   NUM_SNAPSHOTS = 5
-  NIE = 10
-  INPUT_DIM = 4 + (2*FOCUS+3) + NIE + 2*WIDTH + (2*FOCUS)
+  NIE = 32
+  #INPUT_DIM = 4 + (2*FOCUS+3) + NIE + 2*WIDTH + (2*FOCUS)
+  INPUT_DIM = 4 + NIE + 2*WIDTH
 
 
 ACTION_NAMES = ['_', 'L', 'R', 'A', 'l', 'r']
@@ -128,13 +129,20 @@ class Frame:
 
     self.seq = self.NextInt()
 
-    # reward is sqrt of score/30 capped under 3.
-    self.reward = min(3, math.sqrt(self.NextInt()/30.0))
+    # Only count hitting incoming enemies.
+    score = self.NextInt()
+    self.reward = math.sqrt(score/60.0) if score >= 60 else 0
 
     self.terminal = self.NextInt()
 
     self.action = self.NextToken()
     self.action_id = ACTION_ID[self.action]
+
+    # Penalty on holding the A button.
+    if prev_frames:
+      pv = prev_frames[-1]
+      if pv.missile.y < 200 and self.action in ['A', 'l', 'r']:
+        self.reward -= 0.25
 
     galaxian = self.NextPoint()
     self.galaxian = galaxian
@@ -204,10 +212,10 @@ class Frame:
       svx = 0
       if prev_frames:
         svx = Sign(self.sdx - prev_frames[-1].sdx)
-      self.data += smap
-      self.data.append(sl)
-      self.data.append(sr)
-      self.data.append(svx)
+      #self.data += smap
+      #self.data.append(sl)
+      #self.data.append(sr)
+      #self.data.append(svx)
       #print('smap [', ''.join(['x' if h > 0 else '_' for h in smap]), ']',
       #      sl, sr, svx)
 
@@ -279,7 +287,7 @@ class Frame:
             if x1 <= x < x2:
               fill_fmap(x, hit)
       self.data += hmap
-      self.data += fmap
+      #self.data += fmap
       #print('hmap [', ''.join(['x' if h > 0 else '_' for h in hmap]), ']')
       #print('fmap [', ''.join(['x' if h > 0 else '_' for h in fmap]), ']')
 
@@ -380,17 +388,6 @@ class Game:
     assert self._fin.readline().strip() == 'ack'
 
   def Step(self, action):
-    # Don't hold the A button.
-    if self._prev_frames:
-      pv = self._prev_frames[-1]
-      if pv.missile.y >= 200 and pv.action in ['A', 'l', 'r']:
-        if action == 'A':
-          action = '_'
-        elif action == 'l':
-          action = 'L'
-        elif action == 'r':
-          action = 'R'
-
     self._seq += 1
     #print()
     #print(action, self._seq)
@@ -687,8 +684,8 @@ def main(unused_argv):
       if step % SAVE_INTERVAL == 0:
         saved_step.Assign(sess, step)
         saved_epsilon.Assign(sess, epsilon)
-        save_path = saver.save(sess, checkpoint_dir + CHECKPOINT_FILE,
-                               global_step = step)
+        save_path = saver.save(sess,
+            os.path.join(checkpoint_dir, CHECKPOINT_FILE), global_step = step)
         print("Saved to", save_path)
 
       print("Step %d keep: %.6f nn: %s q: %-49s action: %s reward: %5.2f "
