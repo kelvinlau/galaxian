@@ -606,7 +606,6 @@ def main(unused_argv):
     time.sleep(1)
 
   memory = deque()
-  memoryx = deque()
   nn = NeuralNetwork('nn')
   tnn = NeuralNetwork('tnn', trainable=False)
   game = Game(port)
@@ -653,14 +652,9 @@ def main(unused_argv):
       memory.append((frame, action_val, frame1))
       if len(memory) > REPLAY_MEMORY:
         memory.popleft()
-      if frame1.reward != 0:
-        memoryx.append((frame, action_val, frame1))
-        if len(memoryx) > REPLAY_MEMORY:
-          memoryx.popleft()
 
       if step % TRAIN_INTERVAL == 0 and step > OBSERVE_STEPS:
         mini_batch = random.sample(memory, min(len(memory), MINI_BATCH_SIZE))
-        mini_batch += random.sample(memoryx, min(len(memoryx), MINI_BATCH_SIZE))
         mini_batch.append(memory[-1])
         cost, y_val = nn.Train(tnn, mini_batch)
 
