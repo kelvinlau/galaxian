@@ -37,7 +37,7 @@ FLAGS = flags.FLAGS
 flags.DEFINE_string('server', '', 'server binary')
 flags.DEFINE_string('rom', './galaxian.nes', 'galaxian nes rom file')
 flags.DEFINE_float('eps', None, 'initial epsilon')
-flags.DEFINE_string('checkpoint_dir', 'galaxian2w', 'Checkpoint dir')
+flags.DEFINE_string('checkpoint_dir', 'galaxian2w/', 'Checkpoint dir')
 flags.DEFINE_integer('port', 62343, 'server port to conenct')
 
 
