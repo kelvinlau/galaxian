@@ -128,8 +128,8 @@ class Server {
         }
         LOG(INFO) << " Seq " << seq << " Max level: " << max_level
                   << " Max rewards: " << max_score << " Score: " << s.score
-                  << " rewards: " << reward_sum << " last 100 avg: "
-                  << Average(episode_rewards) << " last 100 median: "
+                  << " rewards: " << reward_sum << " avg: "
+                  << Average(episode_rewards) << " median: "
                   << Median(episode_rewards);
         prev_score = -1;
         reward_sum = 0;
