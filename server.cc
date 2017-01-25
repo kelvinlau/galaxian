@@ -87,7 +87,7 @@ class Server {
         Emulator::Save(&reload);
       }
 
-      if (GetLevel() > max_level && reward_sum > 2000) {
+      if (GetLevel() > max_level && reward_sum > 2500) {
         max_level = GetLevel();
         Emulator::Save(&beginning);
         LOG(INFO) << "Level " << max_level;

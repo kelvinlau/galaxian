@@ -16,7 +16,6 @@ TODO: Fewer layer.
 TODO: Dropout/Bayesian.
 TODO: LSTM.
 TODO: A3C.
-TODO: Narrow hmap.
 TODO: Show value & advantage.
 """
 
@@ -40,7 +39,7 @@ FLAGS = flags.FLAGS
 flags.DEFINE_string('server', '', 'server binary')
 flags.DEFINE_string('rom', './galaxian.nes', 'galaxian nes rom file')
 flags.DEFINE_float('eps', None, 'initial epsilon')
-flags.DEFINE_string('checkpoint_dir', 'galaxian2x', 'Checkpoint dir')
+flags.DEFINE_string('checkpoint_dir', 'galaxian2y', 'Checkpoint dir')
 flags.DEFINE_integer('port', 62343, 'server port to conenct')
 
 
@@ -55,13 +54,12 @@ if RAW_IMAGE:
   HEIGHT = 240/SCALE
   SIDE = 84
 else:
-  DX = 8
+  DX = 4
   WIDTH = 256 / DX
   FOCUS = 16
   NUM_SNAPSHOTS = 5
   NIE = 32
-  #INPUT_DIM = 4 + (2*FOCUS+3) + NIE + 2*WIDTH + (2*FOCUS)
-  INPUT_DIM = 4 + NIE + 2*WIDTH
+  INPUT_DIM = 4 + (2*FOCUS+3) + NIE + WIDTH
 
 
 ACTION_NAMES = ['_', 'L', 'R', 'A', 'l', 'r']
@@ -132,9 +130,8 @@ class Frame:
 
     self.seq = self.NextInt()
 
-    # Only count hitting incoming enemies.
     score = self.NextInt()
-    self.reward = math.sqrt(score/60.0) if score >= 60 else 0
+    self.reward = math.sqrt(score/30.0)
 
     self.terminal = self.NextInt()
 
@@ -215,10 +212,10 @@ class Frame:
       svx = 0
       if prev_frames:
         svx = Sign(self.sdx - prev_frames[-1].sdx)
-      #self.data += smap
-      #self.data.append(sl)
-      #self.data.append(sr)
-      #self.data.append(svx)
+      self.data += smap
+      self.data.append(sl)
+      self.data.append(sr)
+      self.data.append(svx)
       #print('smap [', ''.join(['x' if h > 0 else '_' for h in smap]), ']',
       #      sl, sr, svx)
 
@@ -248,9 +245,9 @@ class Frame:
 
       # hit map
       def ix(x):
-        return max(0, min(2*WIDTH-1, (x-galaxian.x+256)/DX))
+        return max(0, min(WIDTH-1, (x-galaxian.x+128)/DX))
       # out-of-bound tiles have penality.
-      hmap = [0. if ix(0) <= i <= ix(255) else 1. for i in range(WIDTH*2)]
+      hmap = [0. if ix(0) <= i <= ix(255) else 1. for i in range(WIDTH)]
       fmap = [0. if 0 <= i+x1 < 256 else 1. for i in range(FOCUS*2)]
       def fill_fmap(ex, hit):
         for x in range(max(ex-4, x1), min(ex+4, x2)):
