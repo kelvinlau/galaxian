@@ -16,6 +16,8 @@ TODO: Fewer layer.
 TODO: Dropout/Bayesian.
 TODO: LSTM.
 TODO: A3C.
+TODO: Narrow hmap.
+TODO: Show value & advantage.
 """
 
 from __future__ import print_function
