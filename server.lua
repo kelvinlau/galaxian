@@ -219,7 +219,7 @@ while true do
     savestate.save(RELOAD_STATE)
   end
 
-  if GetLevel() > max_level and reward_sum > 2500 then
+  if not human_play and GetLevel() > max_level and reward_sum > 2500 then
     max_level = GetLevel();
     savestate.save(INIT_STATE)
     emu.print('Level ' .. max_level)
