@@ -38,7 +38,7 @@ FLAGS = flags.FLAGS
 flags.DEFINE_string('server', '', 'server binary')
 flags.DEFINE_string('rom', './galaxian.nes', 'galaxian nes rom file')
 flags.DEFINE_float('eps', None, 'initial epsilon')
-flags.DEFINE_string('checkpoint_dir', 'galaxian2y', 'Checkpoint dir')
+flags.DEFINE_string('checkpoint_dir', 'models/2.27', 'checkpoint dir')
 flags.DEFINE_integer('port', 62343, 'server port to conenct')
 
 
@@ -472,9 +472,8 @@ class NeuralNetwork:
 
         self.value = tf.matmul(fc3, var([N3, 1])) + var([1])
         self.advantage = tf.matmul(fc3, var([N3, OUTPUT_DIM])) + var([OUTPUT_DIM])
-        # Simple dueling.
-        # TODO: Max dueling or avg dueling.
-        self.output = self.advantage + self.value
+        self.output = self.value + (self.advantage -
+            tf.reduce_mean(self.advantage, reduction_indices=1, keep_dims=True))
       else:
         # Input image.
         self.input = tf.placeholder(tf.float32,
