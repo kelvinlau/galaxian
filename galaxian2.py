@@ -537,11 +537,15 @@ class NeuralNetwork:
   def Vars(self):
     return self.theta
 
+  def EvalAll(self, frames):
+    return tf.get_default_session().run(
+        [self.output, self.value, self.advantage], {
+            self.input1: [f.datax for f in frames],
+            self.ies: [f.ies for f in frames]
+        })
+
   def Eval(self, frames):
-    return self.output.eval(feed_dict = {
-        self.input1: [f.datax for f in frames],
-        self.ies: [f.ies for f in frames]
-    })
+    return self.EvalAll(frames)[0]
 
   def Train(self, tnn, mini_batch):
     frame_batch = [d[0] for d in mini_batch]
@@ -573,10 +577,7 @@ class NeuralNetwork:
         self.y: y_batch,
     }
     self.optimizer.run(feed_dict)
-    sess = tf.get_default_session()
-    value_batch, advantage_batch, cost_val = sess.run(
-        [self.value, self.advantage, self.cost], feed_dict)
-    return value_batch[0], advantage_batch[0], cost_val
+    return self.cost.eval(feed_dict)
 
   def CopyFrom(self, sess, src):
     for v1, v2 in zip(self.Vars(), src.Vars()):
@@ -649,10 +650,13 @@ def main(unused_argv):
       if random.random() <= epsilon:
         rand = True
         action = ACTION_NAMES[random.randrange(OUTPUT_DIM)]
+        value = 0
+        advantage = []
       else:
         rand = False
-        q_val = nn.Eval([frame])[0]
-        action = ACTION_NAMES[np.argmax(q_val)]
+        qs, values, advantages = nn.EvalAll([frame])
+        q, value, advantage = qs[0], values[0], advantages[0]
+        action = ACTION_NAMES[np.argmax(q)]
 
       frame1 = game.Step(action)
       step = game.seq()
@@ -666,7 +670,7 @@ def main(unused_argv):
         mini_batch = random.sample(memory, min(len(memory), MINI_BATCH_SIZE))
         if memory:
           mini_batch.append(memory[-1])
-        value, advantage, cost = nn.Train(tnn, mini_batch)
+        cost = nn.Train(tnn, mini_batch)
 
       frame = frame1
 
