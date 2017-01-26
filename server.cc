@@ -73,8 +73,8 @@ class Server {
 
     bool loaded_from_beginning = true;
     int prev_score = -1;
-    int reward_sum = 0;
-    int max_score = 0;
+    int rewards = 0;
+    int max_rewards = 0;
     int max_level = 0;
     deque<int> episode_rewards;
 
@@ -116,22 +116,22 @@ class Server {
 
       if (!terminal) {
         prev_score = s.score;
-        reward_sum += reward;
-        max_score = std::max(max_score, reward_sum);
+        rewards += reward;
+        max_rewards = std::max(max_rewards, rewards);
       } else {
         loaded_from_beginning = Random() < 0.5;
         Emulator::Load(loaded_from_beginning ? &beginning : &reload);
-        episode_rewards.push_back(reward_sum);
+        episode_rewards.push_back(rewards);
         if (episode_rewards.size() > 100) {
           episode_rewards.pop_front();
         }
-        LOG(INFO) << " Seq " << seq << " Max level: " << max_level
-                  << " Max rewards: " << max_score << " Score: " << s.score
-                  << " Rewards: " << reward_sum << " Avg: "
-                  << Average(episode_rewards) << " Median: "
-                  << Median(episode_rewards);
+        LOG(INFO) << StringPrintf(
+            "Seq %d Score: %5d Rewards: %5d Max Level: %d Max rewards: %d "
+            "Avg: %7.2f Median: %5d",
+            seq, s.score, rewards, max_level, max_rewards,
+            Average(episode_rewards), Median(episode_rewards));
         prev_score = -1;
-        reward_sum = 0;
+        rewards = 0;
       }
     }
   }
