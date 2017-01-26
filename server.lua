@@ -142,6 +142,7 @@ savestate.save(INIT_STATE)
 RELOAD_STATE = savestate.create(8)
 savestate.save(RELOAD_STATE)
 
+loaded_from_init = true
 human_play = false
 max_score = 0
 
@@ -219,7 +220,7 @@ while true do
     savestate.save(RELOAD_STATE)
   end
 
-  if not human_play and GetLevel() > max_level and reward_sum > 2500 then
+  if not human_play and GetLevel() > max_level and loaded_from_init then
     max_level = GetLevel();
     savestate.save(INIT_STATE)
     emu.print('Level ' .. max_level)
@@ -277,10 +278,12 @@ while true do
     max_score = math.max(max_score, reward_sum)
   else
     emu.print("Score: " .. g.score .. " rewards: " .. reward_sum)
-    if math.random() < 0.1 then
+    if math.random() < 0.5 then
       savestate.load(INIT_STATE)
+      loaded_from_init = true
     else
       savestate.load(RELOAD_STATE)
+      loaded_from_init = false
     end
     reward_sum = 0
     recent_games = {}

@@ -74,8 +74,7 @@ class Server {
     vector<uint8> reload;
     Emulator::Save(&reload);
 
-    CHECK(GetState().lifes == 2);
-
+    bool loaded_from_beginning = true;
     int prev_score = -1;
     int reward_sum = 0;
     int max_score = 0;
@@ -87,7 +86,7 @@ class Server {
         Emulator::Save(&reload);
       }
 
-      if (GetLevel() > max_level && reward_sum > 2500) {
+      if (GetLevel() > max_level && loaded_from_beginning) {
         max_level = GetLevel();
         Emulator::Save(&beginning);
         LOG(INFO) << "Level " << max_level;
@@ -121,7 +120,8 @@ class Server {
         reward_sum += reward;
         max_score = std::max(max_score, reward_sum);
       } else {
-        Emulator::Load(Random() < 0.2 ? &beginning : &reload);
+        loaded_from_beginning = Random() < 0.5;
+        Emulator::Load(loaded_from_beginning ? &beginning : &reload);
         episode_rewards.push_back(reward_sum);
         if (episode_rewards.size() > 100) {
           episode_rewards.pop_front();
