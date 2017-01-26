@@ -647,9 +647,10 @@ def main(unused_argv):
 
     while True:
       if random.random() <= epsilon:
-        q_val = []
+        rand = True
         action = ACTION_NAMES[random.randrange(OUTPUT_DIM)]
       else:
+        rand = False
         q_val = nn.Eval([frame])[0]
         action = ACTION_NAMES[np.argmax(q_val)]
 
@@ -685,11 +686,11 @@ def main(unused_argv):
         logging.info("Saved to %s", save_path)
 
       logging.info(
-          "Step %d eps: %.6f nn: %s value: %7.3f adv: %-43s action: %s "
+          "Step %d eps: %.6f nn: %s value: %7.3f adv: %-43s action: %s%s "
           "reward: %5.2f %s cost: %7.3f" %
           (step, epsilon, FormatList(nn.CheckSum()), value,
-            FormatList(advantage), frame1.action, frame1.reward,
-            't' if frame1.terminal else ' ', cost))
+            FormatList(advantage), frame1.action, '?' if rand else ' ',
+            frame1.reward, 't' if frame1.terminal else ' ', cost))
 
 
 if __name__ == '__main__':
