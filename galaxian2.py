@@ -656,13 +656,15 @@ def main(unused_argv):
       frame1 = game.Step(action)
       step = game.seq()
 
-      memory.append((frame, frame1))
-      if len(memory) > REPLAY_MEMORY:
-        memory.popleft()
+      if not frame.terminal:
+        memory.append((frame, frame1))
+        if len(memory) > REPLAY_MEMORY:
+          memory.popleft()
 
       if step % TRAIN_INTERVAL == 0 and step > OBSERVE_STEPS:
         mini_batch = random.sample(memory, min(len(memory), MINI_BATCH_SIZE))
-        mini_batch.append(memory[-1])
+        if memory:
+          mini_batch.append(memory[-1])
         value, advantage, cost = nn.Train(tnn, mini_batch)
 
       frame = frame1
