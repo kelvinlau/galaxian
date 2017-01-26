@@ -524,9 +524,10 @@ class NeuralNetwork:
 
     if trainable:
       # Training.
-      self.action = tf.placeholder(tf.float32, [None, OUTPUT_DIM])
+      self.action = tf.placeholder(tf.int32, [None])
+      action_one_hot = tf.one_hot(self.action, OUTPUT_DIM)
       self.y = tf.placeholder(tf.float32, [None])
-      q_action = tf.reduce_sum(tf.multiply(self.output, self.action),
+      q_action = tf.reduce_sum(tf.multiply(self.output, action_one_hot),
           reduction_indices = 1)
       self.cost = tf.reduce_mean(ClippedError(q_action - self.y))
       self.optimizer = tf.train.RMSPropOptimizer(
@@ -543,8 +544,8 @@ class NeuralNetwork:
 
   def Train(self, tnn, mini_batch):
     frame_batch = [d[0] for d in mini_batch]
-    action_batch = [d[1] for d in mini_batch]
-    frame1_batch = [d[2] for d in mini_batch]
+    frame1_batch = [d[1] for d in mini_batch]
+    action_batch = [f.action_id for f in frame1_batch]
 
     t_q1_batch = tnn.Eval(frame1_batch)
     y_batch = [0] * len(mini_batch)
@@ -644,11 +645,7 @@ def main(unused_argv):
 
       frame1 = game.Step(action)
 
-      action_val = np.zeros([OUTPUT_DIM], dtype=np.int)
-      action_val[frame1.action_id] = 1
-
-      # TODO: no need to store action_val in memory, it's in frame1 already.
-      memory.append((frame, action_val, frame1))
+      memory.append((frame, frame1))
       if len(memory) > REPLAY_MEMORY:
         memory.popleft()
 
