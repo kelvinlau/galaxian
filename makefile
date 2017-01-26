@@ -1,6 +1,6 @@
 default: server
 
-CXXFLAGS=-Wall -Wno-deprecated -Wno-sign-compare -I/usr/local/include -I/usr/include
+CXXFLAGS=-w -Wall -Wno-deprecated -Wno-sign-compare -I/usr/local/include -I/usr/include
 OPT=-O
 
 CXX=g++
@@ -10,7 +10,7 @@ INCLUDES=-I "cc-lib" -I "cc-lib/city" -I "."
 
 CPPFLAGS= -DSTD_STRING -DPSS_STYLE=1 -DDUMMY_UI -DHAVE_ASPRINTF -Wno-write-strings -m64 $(OPT) -DHAVE_ALLOCA -DNOWINSTUFF $(INCLUDES) --std=c++11
 
-CCLIBOBJECTS=cc-lib/util.o cc-lib/arcfour.o cc-lib/base/logging.o cc-lib/base/stringprintf.o cc-lib/city/city.o cc-lib/textsvg.o cc-lib/stb_image.o
+CCLIBOBJECTS=cc-lib/base/logging.o cc-lib/base/stringprintf.o cc-lib/city/city.o
 
 MAPPEROBJECTS=fceu/mappers/24and26.o fceu/mappers/51.o fceu/mappers/69.o fceu/mappers/77.o fceu/mappers/40.o fceu/mappers/6.o fceu/mappers/71.o fceu/mappers/79.o fceu/mappers/41.o fceu/mappers/61.o fceu/mappers/72.o fceu/mappers/80.o fceu/mappers/42.o fceu/mappers/62.o fceu/mappers/73.o fceu/mappers/85.o fceu/mappers/46.o fceu/mappers/65.o fceu/mappers/75.o fceu/mappers/emu2413.o fceu/mappers/50.o fceu/mappers/67.o fceu/mappers/76.o fceu/mappers/mmc2and4.o
 
@@ -41,4 +41,4 @@ test: galaxian_test
 	time ./galaxian_test
 
 clean:
-	rm -f galaxian **/*.o
+	rm -f server *.o */*.o */*/*.o
