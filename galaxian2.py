@@ -16,7 +16,6 @@ TODO: Fewer layer.
 TODO: Dropout/Bayesian.
 TODO: LSTM.
 TODO: A3C.
-TODO: Show value & advantage.
 """
 
 from __future__ import print_function
@@ -471,11 +470,11 @@ class NeuralNetwork:
 
         fc3 = tf.nn.relu(tf.matmul(fc2, var([N2, N3])) + var([N3]))
 
-        value = tf.matmul(fc3, var([N3, 1])) + var([1])
-        advantage = tf.matmul(fc3, var([N3, OUTPUT_DIM])) + var([OUTPUT_DIM])
+        self.value = tf.matmul(fc3, var([N3, 1])) + var([1])
+        self.advantage = tf.matmul(fc3, var([N3, OUTPUT_DIM])) + var([OUTPUT_DIM])
         # Simple dueling.
         # TODO: Max dueling or avg dueling.
-        self.output = advantage + value
+        self.output = self.advantage + self.value
       else:
         # Input image.
         self.input = tf.placeholder(tf.float32,
@@ -571,8 +570,11 @@ class NeuralNetwork:
         self.action: action_batch,
         self.y: y_batch,
     }
-    self.optimizer.run(feed_dict = feed_dict)
-    return self.cost.eval(feed_dict = feed_dict), y_batch[-1]
+    self.optimizer.run(feed_dict)
+    sess = tf.get_default_session()
+    value_batch, advantage_batch, cost_val = sess.run(
+        [self.value, self.advantage, self.cost], feed_dict)
+    return value_batch[0], advantage_batch[0], cost_val
 
   def CopyFrom(self, sess, src):
     for v1, v2 in zip(self.Vars(), src.Vars()):
@@ -633,8 +635,9 @@ def main(unused_argv):
 
     step = saved_step.Eval()
     epsilon = FLAGS.eps or saved_epsilon.Eval()
-    cost = 1e9
-    y_val = 1e9
+    cost = 0
+    value = 0
+    advantage = []
     while True:
       if random.random() <= epsilon:
         q_val = []
@@ -652,7 +655,7 @@ def main(unused_argv):
       if step % TRAIN_INTERVAL == 0 and step > OBSERVE_STEPS:
         mini_batch = random.sample(memory, min(len(memory), MINI_BATCH_SIZE))
         mini_batch.append(memory[-1])
-        cost, y_val = nn.Train(tnn, mini_batch)
+        value, advantage, cost = nn.Train(tnn, mini_batch)
 
       frame = frame1
       step += 1
@@ -672,10 +675,10 @@ def main(unused_argv):
             os.path.join(checkpoint_dir, CHECKPOINT_FILE), global_step = step)
         print("Saved to", save_path)
 
-      print("Step %d eps: %.6f nn: %s q: %-49s action: %s reward: %5.2f "
-          "cost: %8.3f y: %8.3f" %
-          (step, epsilon, FormatList(nn.CheckSum()), FormatList(q_val),
-            frame1.action, frame1.reward, cost, y_val))
+      print("Step %d eps: %.6f nn: %s value: %7.3f adv: %-43s action: %s "
+          "reward: %5.2f cost: %7.3f" %
+          (step, epsilon, FormatList(nn.CheckSum()), value,
+            FormatList(advantage), frame1.action, frame1.reward, cost))
 
 
 if __name__ == '__main__':
