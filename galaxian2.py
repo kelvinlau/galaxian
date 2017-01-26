@@ -27,6 +27,7 @@ import time
 import math
 import socket
 import subprocess
+import logging
 #import cv2
 import numpy as np
 import tensorflow as tf
@@ -186,7 +187,7 @@ class Frame:
         if pv.missile.y >= 200 and pv.action in ['A', 'l', 'r']:
           fired = 1
       self.data.append(fired)
-      #print('fired', fired, 'missile', self.missile.y)
+      logging.debug('fired %d missile %d', fired, self.missile.y)
 
       # galaxian x
       self.data.append((galaxian.x - 128) / 128.0)
@@ -215,8 +216,8 @@ class Frame:
       self.data.append(sl)
       self.data.append(sr)
       self.data.append(svx)
-      #print('smap [', ''.join(['x' if h > 0 else '_' for h in smap]), ']',
-      #      sl, sr, svx)
+      logging.debug('smap [%s] %s %s %s',
+          ''.join(['x' if h > 0 else '_' for h in smap]), sl, sr, svx)
 
       # incoming enemy x, y relative to galaxian, and vx, vy
       ies = []
@@ -287,8 +288,8 @@ class Frame:
               fill_fmap(x, hit)
       self.data += hmap
       #self.data += fmap
-      #print('hmap [', ''.join(['x' if h > 0 else '_' for h in hmap]), ']')
-      #print('fmap [', ''.join(['x' if h > 0 else '_' for h in fmap]), ']')
+      logging.debug('hmap [%s]', ''.join(['x' if h>0 else '_' for h in hmap]))
+      logging.debug('fmap [%s]', ''.join(['x' if h>0 else '_' for h in fmap]))
 
       if not self.terminal:
         self.reward -= min(1., hmap[ix(galaxian.x)]) * .25
@@ -388,8 +389,7 @@ class Game:
 
   def Step(self, action):
     self._seq += 1
-    #print()
-    #print(action, self._seq)
+    logging.debug('Step %s %s', action, self._seq)
 
     self._sock.send(action + ' ' + str(self._seq) + '\n')
 
@@ -397,8 +397,8 @@ class Game:
 
     frame = Frame(line, self._prev_frames)
 
-    assert frame.seq == self._seq, 'Expecting %d, got %d' % (self._seq,
-        frame.seq)
+    assert frame.seq == self._seq, \
+        'Expecting %d, got %d' % (self._seq, frame.seq)
 
     if frame.terminal:
       self._prev_frames.clear()
@@ -439,7 +439,6 @@ class NeuralNetwork:
       if not RAW_IMAGE:
         # Input 1.
         self.input1 = tf.placeholder(tf.float32, [None, INPUT_DIM-NIE])
-        print('input1:', self.input1.get_shape())
 
         # Input 2.
         self.ies = tf.placeholder(tf.float32,
@@ -448,16 +447,13 @@ class NeuralNetwork:
         NIE1 = 8
         ies1 = tf.nn.relu(tf.matmul(ies0, var([2*NUM_SNAPSHOTS, NIE1])) +
                           var([NIE1]))
-        print('ies1', ies1.get_shape())
         ies2 = tf.nn.relu(tf.matmul(ies1, var([NIE1, NIE])) + var([NIE]))
-        print('ies2', ies2.get_shape())
         ies3 = tf.reshape(ies2, [-1, NUM_INCOMING_ENEMIES, NIE])
-        print('ies3', ies3.get_shape())
         input2 = tf.reduce_sum(ies3, axis = 1)
-        print('input2', input2.get_shape())
 
         self.input = tf.concat_v2([self.input1, input2], axis=1)
-        print('input', self.input.get_shape())
+        if trainable:
+          logging.info('input: %s', self.input.get_shape())
 
         N1 = 32
         N2 = 24
@@ -478,7 +474,8 @@ class NeuralNetwork:
         # Input image.
         self.input = tf.placeholder(tf.float32,
             [None, SIDE, SIDE, NUM_SNAPSHOTS])
-        print('input:', self.input.get_shape())
+        if trainable:
+          logging.info('input: %s', self.input.get_shape())
 
         # Conv 1.
         self.w1 = var([8, 8, NUM_SNAPSHOTS, 32])
@@ -486,7 +483,8 @@ class NeuralNetwork:
         conv1 = tf.nn.relu(tf.nn.conv2d(
           self.input, self.w1, strides = [1, 4, 4, 1], padding = "VALID")
           + self.b1)
-        print('conv1:', conv1.get_shape())
+        if trainable:
+          logging.info('conv1: %s', conv1.get_shape())
 
         # Conv 2.
         self.w2 = var([4, 4, 32, 64])
@@ -494,7 +492,8 @@ class NeuralNetwork:
         conv2 = tf.nn.relu(tf.nn.conv2d(
           conv1, self.w2, strides = [1, 2, 2, 1], padding = "VALID")
           + self.b2)
-        print('conv2:', conv2.get_shape())
+        if trainable:
+          logging.info('conv2: %s', conv2.get_shape())
 
         # Conv 3.
         self.w3 = var([3, 3, 64, 64])
@@ -502,7 +501,8 @@ class NeuralNetwork:
         conv3 = tf.nn.relu(tf.nn.conv2d(
           conv2, self.w3, strides = [1, 1, 1, 1], padding = "VALID")
           + self.b3)
-        print('conv3:', conv3.get_shape())
+        if trainable:
+          logging.info('conv3: %s', conv3.get_shape())
 
         # Flatten conv 3.
         conv3_flat = tf.reshape(conv3, [-1, 3136])
@@ -601,6 +601,8 @@ class SavedVar:
 
 
 def main(unused_argv):
+  logging.basicConfig(level=logging.INFO, format='%(message)s')
+
   port = FLAGS.port
   if FLAGS.server:
     server = subprocess.Popen([FLAGS.server, FLAGS.rom, str(port)])
@@ -626,9 +628,9 @@ def main(unused_argv):
     ckpt = tf.train.get_checkpoint_state(checkpoint_dir)
     if ckpt and ckpt.model_checkpoint_path:
       saver.restore(sess, ckpt.model_checkpoint_path)
-      print("Restored from", ckpt.model_checkpoint_path)
+      logging.info("Restored from %s", ckpt.model_checkpoint_path)
     else:
-      print("No checkpoint found")
+      logging.info("No checkpoint found")
 
     tnn.CopyFrom(sess, nn)
 
@@ -663,18 +665,19 @@ def main(unused_argv):
         epsilon -= (INITIAL_EPSILON - FINAL_EPSILON) / EXPLORE_STEPS
 
       if step % UPDATE_TARGET_NETWORK_INTERVAL == 0:
-        print('Target network before:', tnn.CheckSum())
+        logging.info('Target network before: %s', tnn.CheckSum())
         tnn.CopyFrom(sess, nn)
-        print('Target network after:', tnn.CheckSum())
+        logging.info('Target network after: %s', tnn.CheckSum())
 
       if step % SAVE_INTERVAL == 0:
         saved_step.Assign(sess, step)
         saved_epsilon.Assign(sess, epsilon)
         save_path = saver.save(sess,
             os.path.join(checkpoint_dir, CHECKPOINT_FILE), global_step = step)
-        print("Saved to", save_path)
+        logging.info("Saved to %s", save_path)
 
-      print("Step %d eps: %.6f nn: %s value: %7.3f adv: %-43s action: %s "
+      logging.info(
+          "Step %d eps: %.6f nn: %s value: %7.3f adv: %-43s action: %s "
           "reward: %5.2f cost: %7.3f" %
           (step, epsilon, FormatList(nn.CheckSum()), value,
             FormatList(advantage), frame1.action, frame1.reward, cost))
