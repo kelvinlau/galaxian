@@ -380,11 +380,11 @@ class Game:
     self._sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     self._sock.connect(('localhost', port))
     self._fin = self._sock.makefile()
-    self._seq = 0
     self._prev_frames = deque()
 
-  def Start(self):
-    self._sock.send('galaxian:start\n')
+  def Start(self, seq):
+    self._seq = seq
+    self._sock.send('galaxian:start %d\n' % (seq+1))
     assert self._fin.readline().strip() == 'ack'
 
   def Step(self, action):
@@ -408,6 +408,9 @@ class Game:
         self._prev_frames.popleft()
 
     return frame
+
+  def seq(self):
+    return self._seq
 
 
 def TestGame():
@@ -611,9 +614,6 @@ def main(unused_argv):
   memory = deque()
   nn = NeuralNetwork('nn')
   tnn = NeuralNetwork('tnn', trainable=False)
-  game = Game(port)
-  game.Start()
-  frame = game.Step('_')
 
   saved_step = SavedVar(0, 'step')
   saved_epsilon = SavedVar(INITIAL_EPSILON, 'epsilon')
@@ -636,9 +636,15 @@ def main(unused_argv):
 
     step = saved_step.Eval()
     epsilon = FLAGS.eps or saved_epsilon.Eval()
+
     cost = 0
     value = 0
     advantage = []
+
+    game = Game(port)
+    game.Start(step)
+    frame = game.Step('_')
+
     while True:
       if random.random() <= epsilon:
         q_val = []
@@ -648,6 +654,7 @@ def main(unused_argv):
         action = ACTION_NAMES[np.argmax(q_val)]
 
       frame1 = game.Step(action)
+      step = game.seq()
 
       memory.append((frame, frame1))
       if len(memory) > REPLAY_MEMORY:
@@ -659,7 +666,6 @@ def main(unused_argv):
         value, advantage, cost = nn.Train(tnn, mini_batch)
 
       frame = frame1
-      step += 1
 
       if epsilon > FINAL_EPSILON:
         epsilon -= (INITIAL_EPSILON - FINAL_EPSILON) / EXPLORE_STEPS
@@ -678,9 +684,10 @@ def main(unused_argv):
 
       logging.info(
           "Step %d eps: %.6f nn: %s value: %7.3f adv: %-43s action: %s "
-          "reward: %5.2f cost: %7.3f" %
+          "reward: %5.2f %s cost: %7.3f" %
           (step, epsilon, FormatList(nn.CheckSum()), value,
-            FormatList(advantage), frame1.action, frame1.reward, cost))
+            FormatList(advantage), frame1.action, frame1.reward,
+            't' if frame1.terminal else ' ', cost))
 
 
 if __name__ == '__main__':

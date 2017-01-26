@@ -63,16 +63,13 @@ class Server {
   void Loop() {
     LOG(INFO) << "Running Galaxian server";
 
-    InitSocket();
-    RecvStart();
-
     SkipMenu();
-
     vector<uint8> beginning;
     Emulator::Save(&beginning);
-
     vector<uint8> reload;
     Emulator::Save(&reload);
+
+    InitSocket();
 
     bool loaded_from_beginning = true;
     int prev_score = -1;
@@ -81,7 +78,9 @@ class Server {
     int max_level = 0;
     deque<int> episode_rewards;
 
-    for (int step = 1; ; ++step) {
+    int step = 1;
+    RecvStart(&step);
+    for (; ; ++step) {
       if (Random() < 0.01) {
         Emulator::Save(&reload);
       }
@@ -162,10 +161,9 @@ class Server {
     buffer_.pop_back();
   }
 
-  void RecvStart() {
-    do {
-      RecvBuffer();
-    } while (buffer_ != "galaxian:start");
+  void RecvStart(int* step) {
+    RecvBuffer();
+    sscanf(buffer_.c_str(), "galaxian:start %d", step);
 
     buffer_ = "ack";
     SendBuffer();
