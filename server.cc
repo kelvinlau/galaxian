@@ -110,6 +110,7 @@ class Server {
 
       const State s = GetState();
       if (!terminal && prev_score >= 0) {
+        CHECK_GE(s.score, prev_score);
         reward = s.score - prev_score;
       }
       Respond(seq, s, reward, terminal, input);
