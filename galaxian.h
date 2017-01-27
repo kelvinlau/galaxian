@@ -35,7 +35,7 @@ struct State {
 map<int, Point> GetIncomingEnemies() {
   map<int, Point> ret;
   int id = 0;
-  for (int addr = 0x203; addr <= 0x253; addr += 0x10) {
+  for (int addr = 0x203; addr <= 0x263; addr += 0x10) {
     int x = RAM[addr];
     int y = RAM[addr + 1];
     if (x > 0 and y > 0) {

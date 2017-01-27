@@ -28,7 +28,7 @@ NUM_SNAPSHOTS = 3
 function GetIncomingEnemies()
   local ret = {}
   local id = 0
-  for addr=0x203,0x253,0x10 do
+  for addr=0x203,0x263,0x10 do
     local x = memory.readbyte(addr)
     local y = memory.readbyte(addr + 1)
     if x > 0 and y > 0 then

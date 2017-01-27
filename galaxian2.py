@@ -15,6 +15,7 @@ TODO: Fewer layer.
 TODO: Dropout/Bayesian.
 TODO: LSTM/A3C.
 TODO: tf.nn.elu.
+TODO: 2 hmaps.
 """
 
 from __future__ import print_function
@@ -44,7 +45,7 @@ flags.DEFINE_integer('port', 62343, 'server port to conenct')
 
 # Game input/output.
 NUM_STILL_ENEMIES = 10
-NUM_INCOMING_ENEMIES = 6
+NUM_INCOMING_ENEMIES = 7
 RAW_IMAGE = False
 if RAW_IMAGE:
   NUM_SNAPSHOTS = 4
