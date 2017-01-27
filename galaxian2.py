@@ -40,6 +40,7 @@ flags.DEFINE_string('server', '', 'server binary')
 flags.DEFINE_string('rom', './galaxian.nes', 'galaxian nes rom file')
 flags.DEFINE_float('eps', None, 'initial epsilon')
 flags.DEFINE_string('checkpoint_dir', 'models/2.27', 'checkpoint dir')
+flags.DEFINE_string('pnn_dir', 'models/pnn3', 'pnn model dir')
 flags.DEFINE_integer('port', 62343, 'server port to conenct')
 
 
@@ -60,6 +61,7 @@ else:
   NUM_SNAPSHOTS = 5
   NIE = 32
   INPUT_DIM = 4 + (2*FOCUS+3) + NIE + WIDTH
+PATH_LEN = 12
 
 
 ACTION_NAMES = ['_', 'L', 'R', 'A', 'l', 'r']
@@ -77,6 +79,7 @@ REPLAY_MEMORY = 100000 if not RAW_IMAGE else 2000  # 2000 = ~6G memory
 MINI_BATCH_SIZE = 32
 TRAIN_INTERVAL = 4
 UPDATE_TARGET_NETWORK_INTERVAL = 10000
+PATH_TEST_INTERVAL = 1000
 
 # Checkpoint.
 CHECKPOINT_FILE = 'model.ckpt'
@@ -587,6 +590,109 @@ class NeuralNetwork:
     return [np.sum(var.eval()) for var in self.Vars()]
 
 
+class PathNeuralNetwork:
+  def __init__(self, name):
+    var = lambda shape: tf.Variable(tf.truncated_normal(shape, stddev=.02))
+
+    with tf.variable_scope(name):
+      # TODO: Dropout.
+      NIN = 2*PATH_LEN
+      N1 = 8
+      NOUT = 2*PATH_LEN
+      self.input = layer = tf.placeholder(tf.float32, [None, NIN])
+      layer = tf.nn.elu(tf.matmul(layer, var([NIN, N1])) + var([N1]))
+      self.output = tf.matmul(layer, var([N1, NOUT])) + var([NOUT])
+
+      self.target = tf.placeholder(tf.float32, [None, NOUT])
+      cost_weight = []
+      for i in xrange(PATH_LEN):
+        w = 1.0 * (PATH_LEN - i) / PATH_LEN
+        cost_weight.append(w)
+        cost_weight.append(w)
+      delta = self.output - self.target
+      self.cost = tf.reduce_mean(tf.square(delta) * cost_weight)
+      self.optimizer = tf.train.AdamOptimizer(
+          learning_rate=1e-2, epsilon=1e-2).minimize(self.cost)
+
+    self.theta = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope=name)
+    assert len(self.theta) == 4, len(self.theta)
+
+  def Vars(self):
+    return self.theta
+
+  def Eval(self, inputs):
+    return self.output.eval({self.input: inputs})
+
+  @staticmethod
+  def GetPathData(frames):
+    assert len(frames) >= 2*PATH_LEN
+
+    data = []
+    cur = frames[-PATH_LEN-1]
+    latest = frames[-1]
+    for eid in latest.incoming_enemies:
+      if eid not in cur.incoming_enemies:
+        continue
+      e = cur.incoming_enemies[eid]
+      dx = (e.x - cur.galaxian.x) / 256.0
+      dy = (e.y - cur.galaxian.y) / 256.0
+      pin = [dx, dy]
+      for pf in frames[-PATH_LEN-2::-1]:
+        if eid not in pf.incoming_enemies:
+          break
+        pe = pf.incoming_enemies[eid]
+        if abs(pe.y - e.y) > 100:
+          break
+        vx = (e.x - pe.x) / 256.0
+        vy = (e.y - pe.y) / 256.0
+        pin += [vx, vy]
+        e = pe
+      assert len(pin) <= 2*PATH_LEN
+      pin += [0] * (2*PATH_LEN - len(pin))
+
+      pout = []
+      full = 1
+      for f in frames[-PATH_LEN:]:
+        if eid not in f.incoming_enemies:
+          full = 0
+          break
+        e = f.incoming_enemies[eid]
+        dx = (e.x - cur.galaxian.x) / 256.0
+        dy = (e.y - cur.galaxian.y) / 256.0
+        pout += [dx, dy]
+      if not full:
+        continue
+      assert len(pout) == 2*PATH_LEN
+
+      pin = np.array(pin)
+      pout = np.array(pout)
+      data.append((pin, pout))
+
+    return data
+
+  def Train(self, data):
+    inputs = np.array([d[0] for d in data])
+    targets = np.array([d[1] for d in data])
+    feed_dict = {self.input: inputs, self.target: targets}
+    self.optimizer.run(feed_dict)
+    return self.cost.eval(feed_dict)
+
+  def Test(self, data):
+    inputs = np.array([d[0] for d in data])
+    targets = np.array([d[1] for d in data])
+    feed_dict = {self.input: inputs, self.target: targets}
+    cost = self.cost.eval(feed_dict)
+    outputs = self.output.eval(feed_dict)
+    for a in [inputs, targets, outputs]:
+      for e in a:
+        for i in xrange(len(e)):
+          e[i] = round(e[i] * 256.0)
+    return cost, inputs, targets, outputs
+
+  def CheckSum(self):
+    return [np.sum(var.eval()) for var in self.Vars()]
+
+
 def FormatList(l):
   return '[' + ' '.join(['%6.2f' % x for x in l]) + ']'
 
@@ -604,6 +710,29 @@ class SavedVar:
     sess.run(self.assign, {self.input: val})
 
 
+class SimpleSaver:
+  def __init__(self, name, var_list, model_dir, filename):
+    self.name = name
+    self.model_dir = model_dir
+    self.path = os.path.join(model_dir, filename)
+    self.saver = tf.train.Saver(var_list)
+    if not os.path.exists(model_dir):
+      os.makedirs(model_dir)
+
+  def Restore(self, sess):
+    ckpt = tf.train.get_checkpoint_state(self.model_dir)
+    if ckpt and ckpt.model_checkpoint_path:
+      self.saver.restore(sess, ckpt.model_checkpoint_path)
+      logging.info("%s: Restored from %s", self.name,
+          ckpt.model_checkpoint_path)
+    else:
+      logging.info("%s: No checkpoint found", self.name)
+
+  def Save(self, sess, global_step=None):
+    save_path = self.saver.save(sess, self.path, global_step=global_step)
+    logging.info("%s: Saved to %s", self.name, save_path)
+
+
 def main(unused_argv):
   logging.basicConfig(level=logging.INFO, format='%(message)s')
 
@@ -619,26 +748,27 @@ def main(unused_argv):
   saved_step = SavedVar(0, 'step')
   saved_epsilon = SavedVar(INITIAL_EPSILON, 'epsilon')
 
+  episode = deque()
+  pdata = []
+  pnn = PathNeuralNetwork('pnn')
+
   with tf.Session() as sess:
     sess.run(tf.global_variables_initializer())
 
-    saver = tf.train.Saver(nn.Vars() + [saved_step.var, saved_epsilon.var])
-    checkpoint_dir = FLAGS.checkpoint_dir
-    if not os.path.exists(checkpoint_dir):
-      os.makedirs(checkpoint_dir)
-    ckpt = tf.train.get_checkpoint_state(checkpoint_dir)
-    if ckpt and ckpt.model_checkpoint_path:
-      saver.restore(sess, ckpt.model_checkpoint_path)
-      logging.info("Restored from %s", ckpt.model_checkpoint_path)
-    else:
-      logging.info("No checkpoint found")
+    saver = SimpleSaver('saver', nn.Vars() + [saved_step.var,
+      saved_epsilon.var], FLAGS.checkpoint_dir, CHECKPOINT_FILE)
+    saver.Restore(sess)
 
     tnn.CopyFrom(sess, nn)
 
     step = saved_step.Eval()
     epsilon = FLAGS.eps or saved_epsilon.Eval()
 
+    pnn_saver = SimpleSaver('pnn', pnn.Vars(), FLAGS.pnn_dir, CHECKPOINT_FILE)
+    pnn_saver.Restore(sess)
+
     cost = 0
+    pcost = 0
     value = 0
     advantage = []
 
@@ -669,11 +799,30 @@ def main(unused_argv):
         if len(memory) > REPLAY_MEMORY:
           memory.popleft()
 
+      episode.append(frame1)
+      if len(episode) > 2*PATH_LEN:
+        episode.popleft()
+      if len(episode) >= 2*PATH_LEN:
+        pdata.extend(PathNeuralNetwork.GetPathData(list(episode)))
+      if frame1.terminal:
+        episode.clear()
+
+      if step % PATH_TEST_INTERVAL == 0 and pdata:
+        pcost, inputs, targets, outputs = pnn.Test(pdata)
+        logging.info(
+            'pnn test: pcost: %s\n '
+            'inputs:\n%s\n targets:\n%s\n outputs:\n%s\n delta:\n%s',
+            pcost, inputs, targets, outputs, outputs - targets)
+
       if step % TRAIN_INTERVAL == 0 and step > OBSERVE_STEPS:
         mini_batch = random.sample(memory, min(len(memory), MINI_BATCH_SIZE))
         if memory:
           mini_batch.append(memory[-1])
         cost = nn.Train(tnn, mini_batch)
+
+        if len(pdata) >= MINI_BATCH_SIZE:
+          pcost = pnn.Train(pdata)
+          pdata = []
 
       frame = frame1
 
@@ -691,16 +840,15 @@ def main(unused_argv):
       if step % SAVE_INTERVAL == 0:
         saved_step.Assign(sess, step)
         saved_epsilon.Assign(sess, epsilon)
-        save_path = saver.save(sess,
-            os.path.join(checkpoint_dir, CHECKPOINT_FILE), global_step = step)
-        logging.info("Saved to %s", save_path)
+        saver.Save(sess, global_step=step)
+        pnn_saver.Save(sess, global_step=step)
 
       logging.info(
-          "Step %d eps: %.6f nn: %s value: %7.3f adv: %-43s action: %s%s "
-          "reward: %5.2f %s cost: %7.3f" %
-          (step, epsilon, FormatList(nn.CheckSum()), value,
-            FormatList(advantage), frame1.action, '?' if rand else ' ',
-            frame1.reward, 't' if frame1.terminal else ' ', cost))
+          "Step %d eps: %.6f value: %7.3f adv: %-43s action: %s%s "
+          "reward: %5.2f %s pnn: %s pcost: %.6f" %
+          (step, epsilon, value, FormatList(advantage), frame1.action,
+            ' ?'[rand], frame1.reward, ' t'[frame1.terminal],
+            FormatList(pnn.CheckSum()), pcost))
 
 
 if __name__ == '__main__':
