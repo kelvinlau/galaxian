@@ -40,7 +40,7 @@ flags.DEFINE_string('server', '', 'server binary')
 flags.DEFINE_string('rom', './galaxian.nes', 'galaxian nes rom file')
 flags.DEFINE_float('eps', None, 'initial epsilon')
 flags.DEFINE_string('checkpoint_dir', 'models/2.27', 'checkpoint dir')
-flags.DEFINE_string('pnn_dir', 'models/pnn3', 'pnn model dir')
+flags.DEFINE_string('pnn_dir', 'models/pnn4', 'pnn model dir')
 flags.DEFINE_integer('port', 62343, 'server port to conenct')
 
 
@@ -597,7 +597,7 @@ class PathNeuralNetwork:
     with tf.variable_scope(name):
       # TODO: Dropout.
       NIN = 2*PATH_LEN
-      N1 = 8
+      N1 = 16
       NOUT = 2*PATH_LEN
       self.input = layer = tf.placeholder(tf.float32, [None, NIN])
       layer = tf.nn.elu(tf.matmul(layer, var([NIN, N1])) + var([N1]))
@@ -651,18 +651,19 @@ class PathNeuralNetwork:
       pin += [0] * (2*PATH_LEN - len(pin))
 
       pout = []
-      full = 1
+      pe = cur.incoming_enemies[eid]
       for f in frames[-PATH_LEN:]:
         if eid not in f.incoming_enemies:
-          full = 0
           break
         e = f.incoming_enemies[eid]
+        if abs(pe.y - e.y) > 100:
+          break
+        pe = e
         dx = (e.x - cur.galaxian.x) / 256.0
         dy = (e.y - cur.galaxian.y) / 256.0
         pout += [dx, dy]
-      if not full:
+      if len(pout) < 2*PATH_LEN:
         continue
-      assert len(pout) == 2*PATH_LEN
 
       pin = np.array(pin)
       pout = np.array(pout)
