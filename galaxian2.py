@@ -289,7 +289,7 @@ class Frame:
       self.data += hmap
       #self.data += fmap
       logging.debug('hmap [%s]', ''.join(['x' if h>0 else '_' for h in hmap]))
-      logging.debug('fmap [%s]', ''.join(['x' if h>0 else '_' for h in fmap]))
+      #logging.debug('fmap [%s]', ''.join(['x' if h>0 else '_' for h in fmap]))
 
       if not self.terminal:
         self.reward -= min(1., hmap[ix(galaxian.x)]) * .25
@@ -646,6 +646,8 @@ def main(unused_argv):
     game.Start(step)
     frame = game.Step('_')
 
+    action_summary = defaultdict(int)
+
     while True:
       if random.random() <= epsilon:
         rand = True
@@ -657,6 +659,7 @@ def main(unused_argv):
         qs, values, advantages = nn.EvalAll([frame])
         q, value, advantage = qs[0], values[0], advantages[0]
         action = ACTION_NAMES[np.argmax(q)]
+        action_summary[action] += 1
 
       frame1 = game.Step(action)
       step = game.seq()
@@ -678,6 +681,9 @@ def main(unused_argv):
         epsilon -= (INITIAL_EPSILON - FINAL_EPSILON) / EXPLORE_STEPS
 
       if step % UPDATE_TARGET_NETWORK_INTERVAL == 0:
+        logging.info(action_summary)
+        action_summary.clear()
+
         logging.info('Target network before: %s', tnn.CheckSum())
         tnn.CopyFrom(sess, nn)
         logging.info('Target network after: %s', tnn.CheckSum())
