@@ -35,6 +35,7 @@ import tensorflow as tf
 flags = tf.app.flags
 FLAGS = flags.FLAGS
 
+flags.DEFINE_bool('debug', '', 'enable logging.debug')
 flags.DEFINE_string('server', '', 'server binary')
 flags.DEFINE_string('rom', './galaxian.nes', 'galaxian nes rom file')
 flags.DEFINE_float('eps', None, 'initial epsilon')
@@ -779,7 +780,8 @@ class SimpleSaver:
 
 
 def main(unused_argv):
-  logging.basicConfig(level=logging.INFO, format='%(message)s')
+  logging.basicConfig(level=logging.DEBUG if FLAGS.debug else logging.INFO,
+      format='%(message)s')
 
   port = FLAGS.port
   if FLAGS.server:
