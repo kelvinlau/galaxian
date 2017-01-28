@@ -146,21 +146,6 @@ function ShowPaths(paths)
   end
 end
 
----- Small mode ----
-
-function Hit(rg)
-  if #rg[1].incoming_enemies >  0 then return false end
-  if #rg[2].incoming_enemies >  0 then return false end
-  if #rg[3].incoming_enemies == 0 then return false end
-  if #rg[4].incoming_enemies == 0 then return false end
-  for i = 1, 3 do
-    if #rg[i].still_enemies ~= #rg[4].still_enemies then
-      return false
-    end
-  end
-  return true
-end
-
 ---- Script starts here ----
 
 emu.print("Running Galaxian server")
