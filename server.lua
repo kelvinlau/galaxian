@@ -39,6 +39,7 @@ function Respond(client, seq, g, action, reward, terminal)
     Append(e.id)
     Append(e.x)
     Append(e.y)
+    Append(e.row)
   end
   Append(#g.bullets)
   for _, e in pairs(g.bullets) do

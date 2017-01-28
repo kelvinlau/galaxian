@@ -191,9 +191,10 @@ class Server {
       AppendInt(e);
     }
     AppendInt(s.incoming_enemies.size());
-    for (const pair<int, Point>& e : s.incoming_enemies) {
+    for (const pair<int, IncomingEnemy>& e : s.incoming_enemies) {
       AppendInt(e.first);
       AppendPoint(e.second);
+      AppendInt(e.second.row);
     }
     AppendInt(s.bullets.size());
     for (const pair<int, Point>& b : s.bullets) {

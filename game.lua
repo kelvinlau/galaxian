@@ -27,14 +27,15 @@ NUM_SNAPSHOTS = 3
 -- Incoming enemies.
 function GetIncomingEnemies()
   local ret = {}
-  local id = 0
-  for addr=0x203,0x263,0x10 do
+  for i=0,6 do
+    local addr = 0x203 + 0x10 * i
     local x = memory.readbyte(addr)
     local y = memory.readbyte(addr + 1)
     if x > 0 and y > 0 then
-      ret[#ret+1] = {x=(x+8)%0xFF, y=y+6, id=id}
+      addr = 0x718 + i
+      local row = memory.readbyte(addr)
+      ret[#ret+1] = {x=(x+8)%0xFF, y=y+6, id=id, row=row}
     end
-    id = id + 1
   end
   return ret
 end

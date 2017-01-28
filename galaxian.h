@@ -20,11 +20,15 @@ struct Point {
   int x, y;
 };
 
+struct IncomingEnemy : Point {
+  int row;
+};
+
 struct State {
   Point galaxian;
   //vector<Point> still_enemies;
   vector<int> still_enemies_encoded;
-  map<int, Point> incoming_enemies;
+  map<int, IncomingEnemy> incoming_enemies;
   map<int, Point> bullets;
   Point missile;
   int score;
@@ -32,16 +36,18 @@ struct State {
 };
 
 // Incoming enemies.
-map<int, Point> GetIncomingEnemies() {
-  map<int, Point> ret;
-  int id = 0;
-  for (int addr = 0x203; addr <= 0x263; addr += 0x10) {
-    int x = RAM[addr];
-    int y = RAM[addr + 1];
+map<int, IncomingEnemy> GetIncomingEnemies() {
+  map<int, IncomingEnemy> ret;
+  for (int i = 0; i <= 6; ++i) {
+    int x = RAM[0x203 + 0x10 * i];
+    int y = RAM[0x203 + 0x10 * i + 1];
     if (x > 0 and y > 0) {
-      ret[id] = Point{(x+8)%0xFF, y+6};
+      IncomingEnemy e;
+      e.x = (x + 8) % 0xFF;
+      e.y = y + 6;
+      e.row = RAM[0x718 + i];
+      ret[i] = e;
     }
-    ++id;
   }
   return ret;
 }

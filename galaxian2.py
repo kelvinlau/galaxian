@@ -8,8 +8,6 @@ https://medium.com/@awjuliani/simple-reinforcement-learning-with-tensorflow-part
 TODO: Save png to verify input data.
 TODO: Training the model only on score increases?
 TODO: 2D sensors.
-TODO: Enemy type.
-TODO: Use a small separated nn for incoming enemy curves.
 TODO: In-bound but edge tiles should have some penality?
 TODO: Fewer layer.
 TODO: Dropout/Bayesian.
@@ -41,7 +39,7 @@ flags.DEFINE_string('server', '', 'server binary')
 flags.DEFINE_string('rom', './galaxian.nes', 'galaxian nes rom file')
 flags.DEFINE_float('eps', None, 'initial epsilon')
 flags.DEFINE_string('checkpoint_dir', 'models/2.27', 'checkpoint dir')
-flags.DEFINE_string('pnn_dir', 'models/pnn4', 'pnn model dir')
+flags.DEFINE_string('pnn_dir', 'models/pnn5', 'pnn model dir')
 flags.DEFINE_integer('port', 62343, 'server port to conenct')
 flags.DEFINE_bool('send_paths', False, 'send path to render by lua server')
 
@@ -127,6 +125,16 @@ def Sign(x):
   return 1 if x > 0 else -1
 
 
+def GetEnemyType(row):
+  assert 0 <= row <= 5
+  if row <= 2:
+    return 0
+  elif row == 3:
+    return 1
+  else:
+    return 2
+
+
 class Frame:
   def __init__(self, line, prev_frames):
     """Parse a Frame from a line."""
@@ -169,7 +177,9 @@ class Frame:
     self.incoming_enemies = {}
     for i in xrange(self.NextInt()):
       eid = self.NextInt()
-      self.incoming_enemies[eid] = self.NextPoint()
+      e = self.NextPoint()
+      e.row = self.NextInt()
+      self.incoming_enemies[eid] = e
 
     self.bullets = {}
     for i in xrange(self.NextInt()):
@@ -603,8 +613,8 @@ class PathNeuralNetwork:
 
     with tf.variable_scope(name):
       # TODO: Dropout.
-      NIN = 2*PATH_LEN
-      N1 = 16
+      NIN = 3*2*PATH_LEN
+      N1 = 32
       NOUT = 2*PATH_LEN
       self.input = layer = tf.placeholder(tf.float32, [None, NIN])
       layer = tf.nn.elu(tf.matmul(layer, var([NIN, N1])) + var([N1]))
@@ -653,9 +663,13 @@ class PathNeuralNetwork:
       vy = (e.y - pe.y) / 256.0
       pin += [vx, vy]
       e = pe
-    assert len(pin) <= 2*PATH_LEN
-    pin += [0] * (2*PATH_LEN - len(pin))
-    return pin
+    LEN = 2*PATH_LEN
+    assert len(pin) <= LEN
+    pin += [0] * (LEN - len(pin))
+
+    ret = [[0] * LEN] * 3
+    ret[GetEnemyType(e.row)] = pin
+    return sum(ret, [])
 
   @staticmethod
   def GetPathInputs(frames):
