@@ -16,6 +16,7 @@ function Respond(client, seq, g, action, reward, terminal)
   --emu.print("Respond", seq)
   local line = ""
   function Append(x)
+    assert(x, line)
     line = line .. " " .. x
   end
 

@@ -34,7 +34,7 @@ function GetIncomingEnemies()
     if x > 0 and y > 0 then
       addr = 0x718 + i
       local row = memory.readbyte(addr)
-      ret[#ret+1] = {x=(x+8)%0xFF, y=y+6, id=id, row=row}
+      ret[#ret+1] = {x=(x+8)%0xFF, y=y+6, id=i, row=row}
     end
   end
   return ret
