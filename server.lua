@@ -134,11 +134,6 @@ end
 
 function ShowPaths(paths)
   for _, path in pairs(paths) do
-    --for i = 1, #path-1 do
-    --  local a = path[i]
-    --  local b = path[i+1]
-    --  gui.drawline(a.x, a.y, b.x, b.y, 'white')
-    --end
     for i = 1, #path do
       local a = path[i]
       gui.drawbox(a.x-2, a.y-2, a.x+2, a.y+2, 'red', 'clear')
