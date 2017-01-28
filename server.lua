@@ -66,7 +66,7 @@ function Recv(client)
   local line, err = client:receive()
   if err ~= nil then
     emu.print(err)
-    emu.message(err)
+    assert(nil, err)
     return
   end
 
@@ -279,7 +279,7 @@ while true do
   end
   recent_games[0] = g
   local action = ToAction(control)
-  if not terminal then
+  if not terminal and g.score > recent_games[2].score then
     reward = g.score - recent_games[2].score
   end
   Respond(client, seq, g, action, reward, terminal)
