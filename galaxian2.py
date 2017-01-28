@@ -16,6 +16,7 @@ TODO: Dropout/Bayesian.
 TODO: LSTM/A3C.
 TODO: tf.nn.elu.
 TODO: 2 hmaps.
+TODO: 3 smaps.
 """
 
 from __future__ import print_function
@@ -42,6 +43,7 @@ flags.DEFINE_float('eps', None, 'initial epsilon')
 flags.DEFINE_string('checkpoint_dir', 'models/2.27', 'checkpoint dir')
 flags.DEFINE_string('pnn_dir', 'models/pnn4', 'pnn model dir')
 flags.DEFINE_integer('port', 62343, 'server port to conenct')
+flags.DEFINE_bool('send_paths', False, 'send path to render by lua server')
 
 
 # Game input/output.
@@ -130,6 +132,7 @@ class Frame:
     """Parse a Frame from a line."""
     self._tokens = line.split()
     self._idx = 0
+    logging.debug('%s', self._tokens)
 
     self.seq = self.NextInt()
 
@@ -390,11 +393,15 @@ class Game:
     self._sock.send('galaxian:start %d\n' % (seq+1))
     assert self._fin.readline().strip() == 'ack'
 
-  def Step(self, action):
+  def Step(self, action, paths=[]):
     self._seq += 1
-    logging.debug('Step %s %s', action, self._seq)
 
-    self._sock.send(action + ' ' + str(self._seq) + '\n')
+    msg = action + ' ' + str(self._seq)
+    for path in paths:
+      for x in path:
+        msg += ' ' + str(int(x))
+    logging.debug('Step %s', msg)
+    self._sock.send(msg + '\n')
 
     line = self._fin.readline().strip()
 
@@ -621,42 +628,65 @@ class PathNeuralNetwork:
     return self.theta
 
   def Eval(self, inputs):
-    return self.output.eval({self.input: inputs})
+    if not inputs:
+      return []
+    outputs = self.output.eval({self.input: inputs})
+    for path in outputs:
+      for i in xrange(len(path)):
+        path[i] = round(path[i] * 256.0)
+    return outputs
+
+  @staticmethod
+  def _GetPathInput(frames, eid):
+    cur = frames[-1]
+    e = cur.incoming_enemies[eid]
+    dx = (e.x - cur.galaxian.x) / 256.0
+    dy = (e.y - cur.galaxian.y) / 256.0
+    pin = [dx, dy]
+    for pf in frames[-2:-PATH_LEN-1:-1]:
+      if eid not in pf.incoming_enemies:
+        break
+      pe = pf.incoming_enemies[eid]
+      if abs(pe.y - e.y) > 20 or abs(pe.x - e.x) > 20:
+        break
+      vx = (e.x - pe.x) / 256.0
+      vy = (e.y - pe.y) / 256.0
+      pin += [vx, vy]
+      e = pe
+    assert len(pin) <= 2*PATH_LEN
+    pin += [0] * (2*PATH_LEN - len(pin))
+    return pin
+
+  @staticmethod
+  def GetPathInputs(frames):
+    if not frames:
+      return []
+    cur = frames[-1]
+    return [
+        PathNeuralNetwork._GetPathInput(frames, eid) for eid in
+        cur.incoming_enemies]
 
   @staticmethod
   def GetPathData(frames):
     assert len(frames) >= 2*PATH_LEN
 
     data = []
-    cur = frames[-PATH_LEN-1]
-    latest = frames[-1]
+    in_frames = frames[:-PATH_LEN]
+    out_frames = frames[-PATH_LEN:]
+    cur = in_frames[-1]
+    latest = out_frames[-1]
     for eid in latest.incoming_enemies:
       if eid not in cur.incoming_enemies:
         continue
-      e = cur.incoming_enemies[eid]
-      dx = (e.x - cur.galaxian.x) / 256.0
-      dy = (e.y - cur.galaxian.y) / 256.0
-      pin = [dx, dy]
-      for pf in frames[-PATH_LEN-2::-1]:
-        if eid not in pf.incoming_enemies:
-          break
-        pe = pf.incoming_enemies[eid]
-        if abs(pe.y - e.y) > 100:
-          break
-        vx = (e.x - pe.x) / 256.0
-        vy = (e.y - pe.y) / 256.0
-        pin += [vx, vy]
-        e = pe
-      assert len(pin) <= 2*PATH_LEN
-      pin += [0] * (2*PATH_LEN - len(pin))
+      pin = PathNeuralNetwork._GetPathInput(in_frames, eid)
 
       pout = []
       pe = cur.incoming_enemies[eid]
-      for f in frames[-PATH_LEN:]:
+      for f in out_frames:
         if eid not in f.incoming_enemies:
           break
         e = f.incoming_enemies[eid]
-        if abs(pe.y - e.y) > 100:
+        if abs(pe.y - e.y) > 20 or abs(pe.x - e.x) > 20:
           break
         pe = e
         dx = (e.x - cur.galaxian.x) / 256.0
@@ -685,9 +715,9 @@ class PathNeuralNetwork:
     cost = self.cost.eval(feed_dict)
     outputs = self.output.eval(feed_dict)
     for a in [inputs, targets, outputs]:
-      for e in a:
-        for i in xrange(len(e)):
-          e[i] = round(e[i] * 256.0)
+      for path in a:
+        for i in xrange(len(path)):
+          path[i] = round(path[i] * 256.0)
     return cost, inputs, targets, outputs
 
   def CheckSum(self):
@@ -792,7 +822,13 @@ def main(unused_argv):
         action = ACTION_NAMES[np.argmax(q)]
         action_summary[action] += 1
 
-      frame1 = game.Step(action)
+      pouts = []
+      if FLAGS.send_paths:
+        pouts = pnn.Eval(PathNeuralNetwork.GetPathInputs(list(episode)))
+        if len(pouts):
+          pouts += [frame.galaxian.x, frame.galaxian.y] * PATH_LEN
+
+      frame1 = game.Step(action, paths=pouts)
       step = game.seq()
 
       if not frame.terminal:

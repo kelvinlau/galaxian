@@ -94,7 +94,7 @@ class Server {
       uint8 input;
       int seq;
       RecvInput(&input, &seq);
-      CHECK_EQ(step, seq);
+      CHECK_EQ(step, seq) << step << " " << seq;
 
       bool terminal = false;
       int reward = 0;
@@ -164,7 +164,7 @@ class Server {
 
   void RecvStart(int* step) {
     RecvBuffer();
-    sscanf(buffer_.c_str(), "galaxian:start %d", step);
+    CHECK_EQ(sscanf(buffer_.c_str(), "galaxian:start %d", step), 1) << buffer_;
 
     buffer_ = "ack";
     SendBuffer();
@@ -174,7 +174,7 @@ class Server {
     //Timer timer("Recv");
     RecvBuffer();
     char action;
-    sscanf(buffer_.c_str(), "%c %d", &action, seq);
+    CHECK_EQ(sscanf(buffer_.c_str(), "%c %d", &action, seq), 2) << buffer_;
     *input = ToInput(action);
   }
 

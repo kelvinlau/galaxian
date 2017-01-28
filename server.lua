@@ -57,10 +57,10 @@ function Split(s, delimiter)
   for match in (s..delimiter):gmatch("(.-)"..delimiter) do
     table.insert(result, match)
   end
-  return result[1], result[2]
+  return result
 end
 
-function ReadControl(client)
+function Recv(client)
   local line, err = client:receive()
   if err ~= nil then
     emu.print(err)
@@ -71,9 +71,9 @@ function ReadControl(client)
   --emu.print(line)
   --emu.message(line)
 
-  local action = nil
-  local seq = nil
-  action, seq = Split(line, ' ')
+  local result = Split(line, ' ')
+  local action = result[1]
+  local seq = result[2]
 
   ctrl = {}
   if action ~= 'H' then
@@ -95,7 +95,21 @@ function ReadControl(client)
     end
   end
 
-  return ctrl, seq
+  PATH_LEN = 12
+  local paths = {}
+  local i = 3
+  while i <= #result do
+    local path = {}
+    for j=1,PATH_LEN do
+      local x = tonumber(result[i])
+      local y = tonumber(result[i + 1])
+      i = i + 2
+      path[#path+1] = {x=x, y=y}
+    end
+    paths[#paths+1] = path
+  end
+
+  return ctrl, seq, paths
 end
 
 ---- start handshake ----
@@ -115,6 +129,20 @@ end
 function ShowScore(score, max_score)
   gui.drawtext(10, 10, "Score " .. score)
   gui.drawtext(100, 10, "Max Score " .. max_score)
+end
+
+function ShowPaths(paths)
+  for _, path in pairs(paths) do
+    --for i = 1, #path-1 do
+    --  local a = path[i]
+    --  local b = path[i+1]
+    --  gui.drawline(a.x, a.y, b.x, b.y, 'white')
+    --end
+    for i = 1, #path do
+      local a = path[i]
+      gui.drawbox(a.x-2, a.y-2, a.x+2, a.y+2, 'red', 'clear')
+    end
+  end
 end
 
 ---- Small mode ----
@@ -228,7 +256,7 @@ while true do
 
   local control = nil
   local seq = nil
-  control, seq = ReadControl(client)
+  control, seq, paths = Recv(client)
 
   local reward = 0
   local terminal = false
@@ -238,6 +266,7 @@ while true do
     recent_games[0] = GetGame()
     Show(recent_games)
     ShowScore(reward_sum, max_score)
+    ShowPaths(paths)
     if human_play and i == 1 then
       joypad.set(1, {})
     else
