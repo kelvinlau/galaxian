@@ -40,7 +40,7 @@ flags.DEFINE_string('server', '', 'server binary')
 flags.DEFINE_string('rom', './galaxian.nes', 'galaxian nes rom file')
 flags.DEFINE_float('eps', None, 'initial epsilon')
 flags.DEFINE_string('checkpoint_dir', 'models/2.27', 'checkpoint dir')
-flags.DEFINE_string('pnn_dir', 'models/pnn6', 'pnn model dir')
+flags.DEFINE_string('pnn_dir', 'models/pnn7', 'pnn model dir')
 flags.DEFINE_integer('port', 62343, 'server port to conenct')
 flags.DEFINE_bool('send_paths', False, 'send path to render by lua server')
 
@@ -614,15 +614,19 @@ class PathNeuralNetwork:
 
     with tf.variable_scope(name):
       # TODO: Dropout.
+      # TODO: Input vx, vy.
+      # TODO: Enemy type.
       self.input = tf.placeholder(tf.float32, [None, PATH_LEN, 3])
       LSTM_SIZE = 8
       lstm = tf.nn.rnn_cell.LSTMCell(LSTM_SIZE, state_is_tuple=True)
+      logging.info('lstm.state_size: %s', lstm.state_size)
       logging.info('lstm.output_size: %s', lstm.output_size)
       rnn_out, state = tf.nn.dynamic_rnn(lstm, self.input, dtype=tf.float32)
-      logging.info('rnn_out: %s state: %s', rnn_out.get_shape(), state)
-      self.output = tf.reshape(
-          tf.matmul(tf.reshape(rnn_out, [-1, LSTM_SIZE]), var([LSTM_SIZE, 2]))
-          + var([2]), [-1, 2*PATH_LEN])
+      logging.info('rnn_out: %s', rnn_out.get_shape())
+      rnn_out = tf.transpose(rnn_out, [1, 0, 2])
+      rnn_out = rnn_out[-1]
+      self.output = tf.matmul(rnn_out, var([LSTM_SIZE, 2*PATH_LEN])) \
+          + var([2*PATH_LEN])
 
       self.target = tf.placeholder(tf.float32, [None, 2*PATH_LEN])
       cost_weight = []
