@@ -40,7 +40,7 @@ flags.DEFINE_string('server', '', 'server binary')
 flags.DEFINE_string('rom', './galaxian.nes', 'galaxian nes rom file')
 flags.DEFINE_float('eps', None, 'initial epsilon')
 flags.DEFINE_string('checkpoint_dir', 'models/2.27', 'checkpoint dir')
-flags.DEFINE_string('pnn_dir', 'models/pnn7', 'pnn model dir')
+flags.DEFINE_string('pnn_dir', 'models/pnn8', 'pnn model dir')
 flags.DEFINE_integer('port', 62343, 'server port to conenct')
 flags.DEFINE_bool('send_paths', False, 'send path to render by lua server')
 
@@ -614,21 +614,24 @@ class PathNeuralNetwork:
 
     with tf.variable_scope(name):
       # TODO: Dropout.
-      # TODO: Input vx, vy.
-      # TODO: Enemy type.
-      self.input = tf.placeholder(tf.float32, [None, PATH_LEN, 3])
-      LSTM_SIZE = 8
+      INPUT_SIZE = 8
+      OUTPUT_SIZE = 2*PATH_LEN
+      LSTM_SIZE = 16
+      NUM_LAYERS = 2
+      self.input = tf.placeholder(tf.float32, [None, PATH_LEN, INPUT_SIZE])
       lstm = tf.nn.rnn_cell.LSTMCell(LSTM_SIZE, state_is_tuple=True)
+      lstm = tf.nn.rnn_cell.MultiRNNCell([lstm] * NUM_LAYERS,
+          state_is_tuple=True)
       logging.info('lstm.state_size: %s', lstm.state_size)
       logging.info('lstm.output_size: %s', lstm.output_size)
       rnn_out, state = tf.nn.dynamic_rnn(lstm, self.input, dtype=tf.float32)
       logging.info('rnn_out: %s', rnn_out.get_shape())
       rnn_out = tf.transpose(rnn_out, [1, 0, 2])
       rnn_out = rnn_out[-1]
-      self.output = tf.matmul(rnn_out, var([LSTM_SIZE, 2*PATH_LEN])) \
-          + var([2*PATH_LEN])
+      self.output = tf.matmul(rnn_out, var([LSTM_SIZE, OUTPUT_SIZE])) \
+          + var([OUTPUT_SIZE])
 
-      self.target = tf.placeholder(tf.float32, [None, 2*PATH_LEN])
+      self.target = tf.placeholder(tf.float32, [None, OUTPUT_SIZE])
       cost_weight = []
       for i in xrange(PATH_LEN):
         w = 1.0 * (PATH_LEN - i) / PATH_LEN
@@ -637,10 +640,10 @@ class PathNeuralNetwork:
       delta = self.output - self.target
       self.cost = tf.reduce_mean(tf.square(delta) * cost_weight)
       self.optimizer = tf.train.AdamOptimizer(
-          learning_rate=1e-2, epsilon=1e-2).minimize(self.cost)
+          learning_rate=1e-3, epsilon=1e-2).minimize(self.cost)
 
     self.theta = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope=name)
-    assert len(self.theta) == 4, len(self.theta)
+    assert len(self.theta) == 6, len(self.theta)
 
   def Vars(self):
     return self.theta
@@ -658,20 +661,31 @@ class PathNeuralNetwork:
   def _GetPathInput(frames, eid):
     pin = []
     pe = None
-    for f in reversed(frames[-PATH_LEN:]):
+    frames = frames[-PATH_LEN:]
+    for f in frames:
       if eid not in f.incoming_enemies:
-        break
+        pin = []
+        pe = None
+        continue
       e = f.incoming_enemies[eid]
-      if pe and (abs(pe.y - e.y) > 20 or abs(pe.x - e.x) > 20):
+      vx = 0
+      vy = 0
+      if pe:
+        vx = e.x - pe.x
+        vy = e.y - pe.y
+      if abs(vx) > 20 or abs(vy) > 20:
         break
-      dx = e.x / 256.0
-      dy = e.y / 256.0
+      x = e.x / 256.0
+      y = e.y / 256.0
       gx = f.galaxian.x / 256.0
-      pin.append([dx, dy, gx])
+      vx /= 256.0
+      vy /= 256.0
+      coor = [x, y, vx, vy, gx]
+      coor += OneHot(3, GetEnemyType(e.row))
+      pin.append(coor)
       pe = e
     assert 0 < len(pin) <= PATH_LEN, '{} {}'.format(len(pin), len(frames))
-    pin += [pin[-1]] * (PATH_LEN - len(pin))
-    pin = list(reversed(pin))
+    pin = [pin[0]] * (PATH_LEN - len(pin)) + pin
     return np.array(pin)
 
   @staticmethod
@@ -706,9 +720,9 @@ class PathNeuralNetwork:
         if abs(pe.y - e.y) > 20 or abs(pe.x - e.x) > 20:
           break
         pe = e
-        dx = e.x / 256.0
-        dy = e.y / 256.0
-        pout.append([dx, dy])
+        x = e.x / 256.0
+        y = e.y / 256.0
+        pout.append([x, y])
       if len(pout) < 5:
         continue
       if len(pout) < PATH_LEN:
