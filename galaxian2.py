@@ -108,11 +108,11 @@ class Point:
     self.y = y
 
 
-def OneHot(n, i):
+def one_hot(n, i):
   return [1 if j == i else 0 for j in xrange(n)]
 
 
-def NumBits(mask):
+def num_bits(mask):
   ret = 0
   while mask:
     if mask % 2:
@@ -121,13 +121,13 @@ def NumBits(mask):
   return ret
 
 
-def Sign(x):
+def sign(x):
   if x == 0:
     return 0
   return 1 if x > 0 else -1
 
 
-def GetEnemyType(row):
+def enemy_type(row):
   assert 0 <= row <= 5
   if row <= 2:
     return 0
@@ -220,7 +220,7 @@ class Frame:
         mask = self.masks[i]
         if mask:
           ex = self.sdx + 16 * i
-          num = NumBits(mask)
+          num = num_bits(mask)
           for x in xrange(max(ex-4, x1), min(ex+4, x2)):
             smap[x-x1] += num / 7.
           if ex < x1:
@@ -229,7 +229,7 @@ class Frame:
             sr = 1
       svx = 0
       if prev_frames:
-        svx = Sign(self.sdx - prev_frames[-1].sdx)
+        svx = sign(self.sdx - prev_frames[-1].sdx)
       self.data += smap
       self.data.append(sl)
       self.data.append(sr)
@@ -357,15 +357,6 @@ class Frame:
             prev_frame.datax[:, :, :NUM_SNAPSHOTS-1],
             axis = 2)
 
-  @staticmethod
-  def InvertX(dx):
-    if dx > 0:
-      return (256 - dx) / 256.0
-    elif dx < 0:
-      return (-256 - dx) / 256.0
-    else:
-      return 1
-
   def NextToken(self):
     self._idx += 1
     return self._tokens[self._idx - 1]
@@ -435,7 +426,7 @@ class Game:
     return self._seq
 
 
-def TestGame():
+def test_game():
   game = Game()
   while True:
     for i in xrange(10):
@@ -450,7 +441,7 @@ def TestGame():
       game.Step('_')
 
 
-def ClippedError(x):
+def clipped_error(x):
   # Huber loss
   return tf.where(tf.abs(x) < 1.0, 0.5 * tf.square(x), tf.abs(x) - 0.5)
 
@@ -552,7 +543,7 @@ class NeuralNetwork:
       self.y = tf.placeholder(tf.float32, [None])
       q_action = tf.reduce_sum(tf.multiply(self.output, action_one_hot),
           reduction_indices = 1)
-      self.cost = tf.reduce_mean(ClippedError(q_action - self.y))
+      self.cost = tf.reduce_mean(clipped_error(q_action - self.y))
       self.optimizer = tf.train.RMSPropOptimizer(
           learning_rate=0.00025, momentum=.95, epsilon=1e-2).minimize(self.cost)
 
@@ -672,7 +663,7 @@ class PathNeuralNetwork:
         break
       dx = e.x - f.galaxian.x
       coor = [dx, vx, vy]
-      coor += OneHot(3, GetEnemyType(e.row))
+      coor += one_hot(3, enemy_type(e.row))
       pin.append(coor)
       pe = e
     if not pin:
@@ -768,7 +759,7 @@ class PathNeuralNetwork:
     return [np.sum(var.eval()) for var in self.Vars()]
 
 
-def FormatList(l):
+def format_list(l):
   return '[' + ' '.join(['%6.2f' % x for x in l]) + ']'
 
 
@@ -940,9 +931,9 @@ def main(unused_argv):
       logging.info(
           "Step %d eps: %.6f value: %7.3f adv: %-43s action: %s%s "
           "reward: %5.2f %s pnn: %s p_train_cost: %.6f p_test_cost: %.6f" %
-          (step, epsilon, value, FormatList(advantage), frame1.action,
+          (step, epsilon, value, format_list(advantage), frame1.action,
             ' ?'[rand], frame1.reward, ' t'[frame1.terminal],
-            FormatList(pnn.CheckSum()), p_train_cost, p_test_cost))
+            format_list(pnn.CheckSum()), p_train_cost, p_test_cost))
 
 
 if __name__ == '__main__':
