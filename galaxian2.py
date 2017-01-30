@@ -40,8 +40,9 @@ flags.DEFINE_string('server', '', 'server binary')
 flags.DEFINE_string('rom', './galaxian.nes', 'galaxian nes rom file')
 flags.DEFINE_float('eps', None, 'initial epsilon')
 flags.DEFINE_string('checkpoint_dir', 'models/2.27', 'checkpoint dir')
-flags.DEFINE_string('pnn_dir', 'models/pnn10', 'pnn model dir')
 flags.DEFINE_integer('port', 62343, 'server port to conenct')
+flags.DEFINE_bool('train_paths', False, 'train pnn')
+flags.DEFINE_string('pnn_dir', 'models/pnn10', 'pnn model dir')
 flags.DEFINE_bool('send_paths', False, 'send path to render by lua server')
 
 
@@ -885,7 +886,7 @@ def main(unused_argv):
       episode.append(frame1)
       if len(episode) > 2*PATH_LEN:
         episode.popleft()
-      if len(episode) >= 2*PATH_LEN:
+      if len(episode) >= 2*PATH_LEN and FLAGS.train_paths:
         pdata.extend(PathNeuralNetwork.EncodePathData(list(episode)))
       if frame1.terminal:
         episode.clear()
@@ -904,7 +905,7 @@ def main(unused_argv):
         cost = nn.Train(tnn, mini_batch)
 
         if len(pdata) >= 1000:
-          EPOCHS = 8
+          EPOCHS = 2
           p_train_cost = 0
           n = 0
           for e in xrange(EPOCHS):
