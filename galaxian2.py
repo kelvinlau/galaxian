@@ -613,14 +613,16 @@ class PathNeuralNetwork:
     var = lambda shape: tf.Variable(tf.truncated_normal(shape, stddev=.02))
 
     with tf.variable_scope(name):
-      # TODO: Dropout.
       INPUT_SIZE = 8
       OUTPUT_SIZE = 2*PATH_LEN
       LSTM_SIZE = 16
-      NUM_LAYERS = 2
       self.input = tf.placeholder(tf.float32, [None, PATH_LEN, INPUT_SIZE])
-      lstm = tf.nn.rnn_cell.LSTMCell(LSTM_SIZE, state_is_tuple=True)
-      lstm = tf.nn.rnn_cell.MultiRNNCell([lstm] * NUM_LAYERS,
+      self.keep_prob = tf.placeholder(tf.float32)
+      lstm0 = tf.nn.rnn_cell.LSTMCell(LSTM_SIZE, state_is_tuple=True)
+      lstm1 = tf.nn.rnn_cell.LSTMCell(LSTM_SIZE, state_is_tuple=True)
+      lstm1 = tf.nn.rnn_cell.DropoutWrapper(lstm1,
+          output_keep_prob=self.keep_prob)
+      lstm = tf.nn.rnn_cell.MultiRNNCell([lstm0, lstm1],
           state_is_tuple=True)
       logging.info('lstm.state_size: %s', lstm.state_size)
       logging.info('lstm.output_size: %s', lstm.output_size)
@@ -632,15 +634,9 @@ class PathNeuralNetwork:
           + var([OUTPUT_SIZE])
 
       self.target = tf.placeholder(tf.float32, [None, OUTPUT_SIZE])
-      cost_weight = []
-      for i in xrange(PATH_LEN):
-        w = 1.0 * (PATH_LEN - i) / PATH_LEN
-        cost_weight.append(w)
-        cost_weight.append(w)
-      delta = self.output - self.target
-      self.cost = tf.reduce_mean(tf.square(delta) * cost_weight)
+      self.cost = tf.reduce_mean(tf.square(self.output - self.target))
       self.optimizer = tf.train.AdamOptimizer(
-          learning_rate=1e-3, epsilon=1e-2).minimize(self.cost)
+          learning_rate=5e-3, epsilon=1e-2).minimize(self.cost)
 
     self.theta = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope=name)
     assert len(self.theta) == 6, len(self.theta)
@@ -651,7 +647,7 @@ class PathNeuralNetwork:
   def Eval(self, inputs):
     if not inputs:
       return []
-    outputs = self.output.eval({self.input: inputs})
+    outputs = self.output.eval({self.input: inputs, self.keep_prob: 1.0})
     for path in outputs:
       for i in xrange(len(path)):
         path[i] = round(path[i] * 256.0)
@@ -663,11 +659,11 @@ class PathNeuralNetwork:
     pe = None
     frames = frames[-PATH_LEN:]
     for f in frames:
-      if eid not in f.incoming_enemies:
+      e = f.incoming_enemies.get(eid)
+      if not e or e.y < 72:
         pin = []
         pe = None
         continue
-      e = f.incoming_enemies[eid]
       vx = 0
       vy = 0
       if pe:
@@ -684,7 +680,9 @@ class PathNeuralNetwork:
       coor += OneHot(3, GetEnemyType(e.row))
       pin.append(coor)
       pe = e
-    assert 0 < len(pin) <= PATH_LEN, '{} {}'.format(len(pin), len(frames))
+    if not pin:
+      return None
+    assert len(pin) <= PATH_LEN, '{} {}'.format(len(pin), len(frames))
     pin = [pin[0]] * (PATH_LEN - len(pin)) + pin
     return np.array(pin)
 
@@ -693,9 +691,12 @@ class PathNeuralNetwork:
     if not frames:
       return []
     cur = frames[-1]
-    return [
-        PathNeuralNetwork._GetPathInput(frames, eid) for eid in
-        cur.incoming_enemies]
+    ret = []
+    for eid in cur.incoming_enemies:
+      pin = PathNeuralNetwork._GetPathInput(frames, eid)
+      if pin is not None:
+        ret.append(pin)
+    return ret
 
   @staticmethod
   def GetPathData(frames):
@@ -707,9 +708,10 @@ class PathNeuralNetwork:
     cur = in_frames[-1]
     latest = out_frames[-1]
     for eid in latest.incoming_enemies:
-      if eid not in cur.incoming_enemies:
-        continue
+      if eid not in cur.incoming_enemies: continue
+
       pin = PathNeuralNetwork._GetPathInput(in_frames, eid)
+      if pin is None: continue
 
       pout = []
       pe = cur.incoming_enemies[eid]
@@ -737,7 +739,7 @@ class PathNeuralNetwork:
   def Train(self, data):
     inputs = np.array([d[0] for d in data])
     targets = np.array([d[1] for d in data])
-    feed_dict = {self.input: inputs, self.target: targets}
+    feed_dict = {self.input: inputs, self.target: targets, self.keep_prob: 0.9}
     self.optimizer.run(feed_dict)
     return self.cost.eval(feed_dict)
 
@@ -745,7 +747,7 @@ class PathNeuralNetwork:
     inputs = np.array([d[0] for d in data])
     targets = np.array([d[1] for d in data])
 
-    feed_dict = {self.input: inputs, self.target: targets}
+    feed_dict = {self.input: inputs, self.target: targets, self.keep_prob: 1.0}
     cost = self.cost.eval(feed_dict)
     outputs = self.output.eval(feed_dict)
 
@@ -835,7 +837,8 @@ def main(unused_argv):
     pnn_saver.Restore(sess)
 
     cost = 0
-    pcost = 0
+    p_test_cost = 0
+    p_train_cost = 0
     value = 0
     advantage = []
 
@@ -879,11 +882,11 @@ def main(unused_argv):
         episode.clear()
 
       if step % PATH_TEST_INTERVAL == 0 and pdata:
-        pcost, inputs, targets, outputs = pnn.Test(pdata)
+        p_test_cost, inputs, targets, outputs = pnn.Test(pdata[-5:])
         logging.info(
-            'pnn test: pcost: %s\n '
+            'pnn test: cost: %s\n '
             'inputs:\n%s\n targets:\n%s\n outputs:\n%s\n delta:\n%s',
-            pcost, inputs, targets, outputs, outputs - targets)
+            p_test_cost, inputs, targets, outputs, outputs - targets)
 
       if step % TRAIN_INTERVAL == 0 and step > OBSERVE_STEPS:
         mini_batch = random.sample(memory, min(len(memory), MINI_BATCH_SIZE))
@@ -891,8 +894,18 @@ def main(unused_argv):
           mini_batch.append(memory[-1])
         cost = nn.Train(tnn, mini_batch)
 
-        if len(pdata) >= MINI_BATCH_SIZE:
-          pcost = pnn.Train(pdata)
+        if len(pdata) >= 1000:
+          EPOCHS = 8
+          p_train_cost = 0
+          n = 0
+          for e in xrange(EPOCHS):
+            logging.info('pnn train: epoch %d', e)
+            for i in xrange(0, len(pdata), MINI_BATCH_SIZE):
+              p_train_cost += pnn.Train(pdata[i: i+MINI_BATCH_SIZE])
+              n += 1
+          p_train_cost /= n
+          logging.info('pnn train: data size: %d cost: %s', len(pdata),
+              p_train_cost)
           pdata = []
 
       frame = frame1
@@ -916,10 +929,10 @@ def main(unused_argv):
 
       logging.info(
           "Step %d eps: %.6f value: %7.3f adv: %-43s action: %s%s "
-          "reward: %5.2f %s pnn: %s pcost: %.6f" %
+          "reward: %5.2f %s pnn: %s p_train_cost: %.6f p_test_cost: %.6f" %
           (step, epsilon, value, FormatList(advantage), frame1.action,
             ' ?'[rand], frame1.reward, ' t'[frame1.terminal],
-            FormatList(pnn.CheckSum()), pcost))
+            FormatList(pnn.CheckSum()), p_train_cost, p_test_cost))
 
 
 if __name__ == '__main__':
