@@ -40,7 +40,7 @@ flags.DEFINE_string('server', '', 'server binary')
 flags.DEFINE_string('rom', './galaxian.nes', 'galaxian nes rom file')
 flags.DEFINE_float('eps', None, 'initial epsilon')
 flags.DEFINE_string('checkpoint_dir', 'models/2.27', 'checkpoint dir')
-flags.DEFINE_string('pnn_dir', 'models/pnn8', 'pnn model dir')
+flags.DEFINE_string('pnn_dir', 'models/pnn10', 'pnn model dir')
 flags.DEFINE_integer('port', 62343, 'server port to conenct')
 flags.DEFINE_bool('send_paths', False, 'send path to render by lua server')
 
@@ -613,7 +613,7 @@ class PathNeuralNetwork:
     var = lambda shape: tf.Variable(tf.truncated_normal(shape, stddev=.02))
 
     with tf.variable_scope(name):
-      INPUT_SIZE = 8
+      INPUT_SIZE = 6
       OUTPUT_SIZE = 2*PATH_LEN
       LSTM_SIZE = 16
       self.input = tf.placeholder(tf.float32, [None, PATH_LEN, INPUT_SIZE])
@@ -648,13 +648,11 @@ class PathNeuralNetwork:
     if not inputs:
       return []
     outputs = self.output.eval({self.input: inputs, self.keep_prob: 1.0})
-    for path in outputs:
-      for i in xrange(len(path)):
-        path[i] = round(path[i] * 256.0)
+    outputs = np.round(outputs)
     return outputs
 
   @staticmethod
-  def _GetPathInput(frames, eid):
+  def _EncodePathInput(frames, eid):
     pin = []
     pe = None
     frames = frames[-PATH_LEN:]
@@ -671,12 +669,8 @@ class PathNeuralNetwork:
         vy = e.y - pe.y
       if abs(vx) > 20 or abs(vy) > 20:
         break
-      x = e.x / 256.0
-      y = e.y / 256.0
-      gx = f.galaxian.x / 256.0
-      vx /= 256.0
-      vy /= 256.0
-      coor = [x, y, vx, vy, gx]
+      dx = e.x - f.galaxian.x
+      coor = [dx, vx, vy]
       coor += OneHot(3, GetEnemyType(e.row))
       pin.append(coor)
       pe = e
@@ -687,19 +681,17 @@ class PathNeuralNetwork:
     return np.array(pin)
 
   @staticmethod
-  def GetPathInputs(frames):
-    if not frames:
-      return []
+  def EncodePathInputs(frames):
     cur = frames[-1]
-    ret = []
+    ret = {}
     for eid in cur.incoming_enemies:
-      pin = PathNeuralNetwork._GetPathInput(frames, eid)
+      pin = PathNeuralNetwork._EncodePathInput(frames, eid)
       if pin is not None:
-        ret.append(pin)
+        ret[eid] = pin
     return ret
 
   @staticmethod
-  def GetPathData(frames):
+  def EncodePathData(frames):
     assert len(frames) >= 2*PATH_LEN
 
     data = []
@@ -710,7 +702,7 @@ class PathNeuralNetwork:
     for eid in latest.incoming_enemies:
       if eid not in cur.incoming_enemies: continue
 
-      pin = PathNeuralNetwork._GetPathInput(in_frames, eid)
+      pin = PathNeuralNetwork._EncodePathInput(in_frames, eid)
       if pin is None: continue
 
       pout = []
@@ -719,12 +711,12 @@ class PathNeuralNetwork:
         if eid not in f.incoming_enemies:
           break
         e = f.incoming_enemies[eid]
-        if abs(pe.y - e.y) > 20 or abs(pe.x - e.x) > 20:
+        vx = e.x - pe.x
+        vy = e.y - pe.y
+        if abs(vx) > 20 or abs(vy) > 20:
           break
         pe = e
-        x = e.x / 256.0
-        y = e.y / 256.0
-        pout.append([x, y])
+        pout.append([vx, vy])
       if len(pout) < 5:
         continue
       if len(pout) < PATH_LEN:
@@ -735,6 +727,23 @@ class PathNeuralNetwork:
       data.append((pin, pout))
 
     return data
+
+  @staticmethod
+  def DecodePathOutputs(outputs, eids, cur):
+    assert len(eids) == len(outputs), '{} {}'.format(len(eids), len(outputs))
+
+    paths = []
+    for eid, out in zip(eids, outputs):
+      e = cur.incoming_enemies[eid]
+      x = e.x
+      y = e.y
+      path = []
+      for i in xrange(0, len(out), 2):
+        x += out[i]
+        y += out[i+1]
+        path += [x, y]
+      paths.append(path)
+    return paths
 
   def Train(self, data):
     inputs = np.array([d[0] for d in data])
@@ -750,10 +759,7 @@ class PathNeuralNetwork:
     feed_dict = {self.input: inputs, self.target: targets, self.keep_prob: 1.0}
     cost = self.cost.eval(feed_dict)
     outputs = self.output.eval(feed_dict)
-
-    inputs = np.round(inputs * 256.0)
-    outputs = np.round(outputs * 256.0)
-    targets = np.round(targets * 256.0)
+    outputs = np.round(outputs)
 
     return cost, inputs, targets, outputs
 
@@ -861,11 +867,14 @@ def main(unused_argv):
         action = ACTION_NAMES[np.argmax(q)]
         action_summary[action] += 1
 
-      pouts = []
-      if FLAGS.send_paths:
-        pouts = pnn.Eval(PathNeuralNetwork.GetPathInputs(list(episode)))
+      paths = []
+      if FLAGS.send_paths and episode:
+        inputs_map = PathNeuralNetwork.EncodePathInputs(list(episode))
+        pouts = pnn.Eval(inputs_map.values())
+        paths = PathNeuralNetwork.DecodePathOutputs(
+            pouts, inputs_map.keys(), episode[-1])
 
-      frame1 = game.Step(action, paths=pouts)
+      frame1 = game.Step(action, paths=paths)
       step = game.seq()
 
       if not frame.terminal:
@@ -877,7 +886,7 @@ def main(unused_argv):
       if len(episode) > 2*PATH_LEN:
         episode.popleft()
       if len(episode) >= 2*PATH_LEN:
-        pdata.extend(PathNeuralNetwork.GetPathData(list(episode)))
+        pdata.extend(PathNeuralNetwork.EncodePathData(list(episode)))
       if frame1.terminal:
         episode.clear()
 
