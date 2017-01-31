@@ -7,14 +7,8 @@ https://medium.com/@awjuliani/simple-reinforcement-learning-with-tensorflow-part
 
 TODO: Save png to verify input data.
 TODO: Training the model only on score increases?
-TODO: 2D sensors.
-TODO: In-bound but edge tiles should have some penality?
-TODO: Fewer layer.
 TODO: Dropout/Bayesian.
-TODO: LSTM/A3C.
-TODO: tf.nn.elu.
-TODO: 2 hmaps.
-TODO: 3 smaps.
+TODO: A3C.
 """
 
 from __future__ import print_function
@@ -28,6 +22,7 @@ import socket
 import subprocess
 import logging
 #import cv2
+import scipy.signal
 import numpy as np
 import tensorflow as tf
 
@@ -38,8 +33,7 @@ FLAGS = flags.FLAGS
 flags.DEFINE_bool('debug', '', 'enable logging.debug')
 flags.DEFINE_string('server', '', 'server binary')
 flags.DEFINE_string('rom', './galaxian.nes', 'galaxian nes rom file')
-flags.DEFINE_float('eps', None, 'initial epsilon')
-flags.DEFINE_string('checkpoint_dir', 'models/2.27', 'checkpoint dir')
+flags.DEFINE_string('checkpoint_dir', 'models/2.28', 'checkpoint dir')
 flags.DEFINE_integer('port', 62343, 'server port to conenct')
 flags.DEFINE_bool('train_paths', False, 'train pnn')
 flags.DEFINE_string('pnn_dir', 'models/pnn10', 'pnn model dir')
@@ -61,31 +55,11 @@ else:
   WIDTH = 256 / DX
   FOCUS = 16
   NUM_SNAPSHOTS = 5
-  NIE = 32
-  INPUT_DIM = 4 + (2*FOCUS+3) + NIE + WIDTH
+  INPUT_DIM = 3 + (2*FOCUS+3) + NUM_INCOMING_ENEMIES*5 + 2*WIDTH
 PATH_LEN = 12
-
-
 ACTION_NAMES = ['_', 'L', 'R', 'A', 'l', 'r']
 ACTION_ID = {ACTION_NAMES[i]: i for i in xrange(len(ACTION_NAMES))}
 OUTPUT_DIM = len(ACTION_NAMES)
-
-# Hyperparameters.
-DOUBLE_Q = True
-GAMMA = 0.98
-INITIAL_EPSILON = 1.0
-FINAL_EPSILON = 0.05 if DOUBLE_Q else 0.1
-EXPLORE_STEPS = 2000000
-OBSERVE_STEPS = 5000
-REPLAY_MEMORY = 100000 if not RAW_IMAGE else 2000  # 2000 = ~6G memory
-MINI_BATCH_SIZE = 32
-TRAIN_INTERVAL = 4
-UPDATE_TARGET_NETWORK_INTERVAL = 10000
-PATH_TEST_INTERVAL = 1000
-
-# Checkpoint.
-CHECKPOINT_FILE = 'model.ckpt'
-SAVE_INTERVAL = 10000
 
 
 class Timer:
@@ -193,22 +167,11 @@ class Frame:
 
       # missile x, y
       self.data.append((self.missile.x - galaxian.x) / 256.0)
-      if self.missile.y < 200:
-        self.data.append(self.missile.y / 200.0)
-      else:
-        self.data.append(0)
-
-      # fired or not
-      fired = 0
-      if prev_frames:
-        pv = prev_frames[-1]
-        if pv.missile.y >= 200 and pv.action in ['A', 'l', 'r']:
-          fired = 1
-      self.data.append(fired)
-      logging.debug('fired %d missile %d', fired, self.missile.y)
+      self.data.append(self.missile.y / 200.0 if self.missile.y < 200 else 0)
+      logging.debug('missile %d,%d', self.missile.x, self.missile.y)
 
       # galaxian x
-      self.data.append((galaxian.x - 128) / 128.0)
+      self.data.append(galaxian.x / 256.0)
 
       # still enemies dx relative to galaxian in focus region, and vx.
       smap = [0.] * (2*FOCUS)
@@ -237,83 +200,75 @@ class Frame:
       logging.debug('smap [%s] %s %s %s',
           ''.join(['x' if h > 0 else '_' for h in smap]), sl, sr, svx)
 
-      # incoming enemy x, y relative to galaxian, and vx, vy
+      # incoming enemy x, y relative to galaxian, and enemy type.
       ies = []
       for eid, e in sorted(
           self.incoming_enemies.items(), key = lambda p: p[1].y):
         dx = (e.x - galaxian.x) / 256.0
-        dy = (e.y - galaxian.y) / 200.0
-        ie = [dx, dy]
-        for pf in reversed(prev_frames):
-          if eid not in pf.incoming_enemies:
-            break
-          pe = pf.incoming_enemies[eid]
-          if abs(pe.y - e.y) > 100:
-            break
-          vx = (e.x - pe.x) / 256.0
-          vy = (e.y - pe.y) / 200.0
-          ie += [vx, vy]
-          e = pe
-        assert len(ie) <= 2*NUM_SNAPSHOTS
-        ie += [0, 0] * (NUM_SNAPSHOTS - len(ie)/2)
-        ies.append(ie)
+        dy = (e.y - galaxian.y) / 256.0
+        ies.append([dx, dy] + one_hot(3, enemy_type(e.row)))
       for i in xrange(NUM_INCOMING_ENEMIES-len(ies)):
-        ies.append([3, 3] + [0, 0] * (NUM_SNAPSHOTS-1))
-      self.ies = ies
+        ies.append([1, 1, 0, 0, 0])
+      ies = sum(ies, [])
+      self.data.extend(ies)
 
       # hit map
       def ix(x):
         return max(0, min(WIDTH-1, (x-galaxian.x+128)/DX))
       # out-of-bound tiles have penality.
-      hmap = [0. if ix(0) <= i <= ix(255) else 1. for i in range(WIDTH)]
-      fmap = [0. if 0 <= i+x1 < 256 else 1. for i in range(FOCUS*2)]
-      def fill_fmap(ex, hit):
-        for x in range(max(ex-4, x1), min(ex+4, x2)):
-          fmap[x-x1] += hit
+      imap = [0. if ix(0) <= i <= ix(255) else 1. for i in range(WIDTH)]
+      bmap = imap[:]
       if prev_frames:
         steps = len(prev_frames)
-        y = galaxian.y
+        y1 = galaxian.y-8
+        y2 = galaxian.y+8
         for eid, e in self.incoming_enemies.iteritems():
           pe = None  # the furthest frame having this enemy
           for pf in prev_frames:
             if eid in pf.incoming_enemies:
               pe = pf.incoming_enemies[eid]
               break
-          x, t = None, None
-          if pe and pe.y < e.y < y:
-            x = int(round((e.x-pe.x)*1.0/(e.y-pe.y)*(y-pe.y)+pe.x))
-            t = (y-e.y)*1.0/(e.y-pe.y)*steps
-          elif y <= e.y < y + 12:
-            x = e.x
+          x1, x2, t = None, None, None
+          if pe and pe.y < e.y < y1:
+            x1 = int(round((e.x-pe.x)*1.0/(e.y-pe.y)*(y1-pe.y)+pe.x))
+            x2 = int(round((e.x-pe.x)*1.0/(e.y-pe.y)*(y2-pe.y)+pe.x))
+            t = (y1-e.y)*1.0/(e.y-pe.y)*steps
+          elif y1 <= e.y <= y2:
+            x1 = x2 = e.x
             t = 0
-          if x is not None:
+          if x1 is not None:
             hit = max(0., 1.-t/24.)
-            hmap[ix(x)] += hit
-            if x1 <= x < x2:
-              fill_fmap(x, hit)
+            for i in xrange(ix(x1), ix(x2)+1):
+              imap[i] += hit
         for eid, e in self.bullets.iteritems():
-          pe = None  # the furthest frame having this enemy
+          pe = None  # the furthest frame having this bullet
           for pf in prev_frames:
             if eid in pf.bullets:
               pe = pf.bullets[eid]
               break
-          if pe and pe.y < e.y < y:
-            x = int(round((e.x-pe.x)*1.0/(e.y-pe.y)*(y-pe.y)+pe.x))
-            t = (y-e.y)*1.0/(e.y-pe.y)*steps
+          x1, x2, t = None, None, None
+          if pe and pe.y < e.y < y1:
+            x1 = int(round((e.x-pe.x)*1.0/(e.y-pe.y)*(y1-pe.y)+pe.x))
+            x2 = int(round((e.x-pe.x)*1.0/(e.y-pe.y)*(y2-pe.y)+pe.x))
+            t = (y1-e.y)*1.0/(e.y-pe.y)*steps
+          elif y1 <= e.y <= y2:
+            x1 = x2 = e.x
+            t = 0
+          if x1 is not None:
             hit = max(0., 1.-t/12.)
-            hmap[ix(x)] += hit
-            if x1 <= x < x2:
-              fill_fmap(x, hit)
-      self.data += hmap
-      #self.data += fmap
-      logging.debug('hmap [%s]', ''.join(['x' if h>0 else '_' for h in hmap]))
-      #logging.debug('fmap [%s]', ''.join(['x' if h>0 else '_' for h in fmap]))
+            for i in xrange(ix(x1), ix(x2)+1):
+              bmap[i] += hit
+      self.data += imap
+      self.data += bmap
+      logging.debug('imap [%s]', ''.join(['x' if h>0 else '_' for h in imap]))
+      logging.debug('bmap [%s]', ''.join(['x' if h>0 else '_' for h in bmap]))
 
       if not self.terminal:
-        self.reward -= min(1., hmap[ix(galaxian.x)]) * .25
+        self.reward -= min(1., bmap[ix(galaxian.x)]) * .25
 
-      assert len(self.data) == INPUT_DIM-NIE
-      self.datax = np.array(self.data)
+      assert len(self.data) == INPUT_DIM, \
+          '{} vs {}'.format(len(self.data), INPUT_DIM)
+      self.data = np.array(self.data)
     else:
       self.data = np.zeros((WIDTH, HEIGHT))
 
@@ -344,17 +299,17 @@ class Frame:
       self.data = cv2.resize(self.data, (SIDE, SIDE))
 
       if not prev_frames:
-        self.datax = np.reshape(self.data, (SIDE, SIDE, 1))
+        self.data = np.reshape(self.data, (SIDE, SIDE, 1))
         for i in xrange(NUM_SNAPSHOTS-1):
-          self.datax = np.append(
-              self.datax,
+          self.data = np.append(
+              self.data,
               np.reshape(self.data, (SIDE, SIDE, 1)),
               axis = 2)
       else:
         prev_frame = prev_frames[-1]
-        self.datax = np.append(
+        self.data = np.append(
             np.reshape(self.data, (SIDE, SIDE, 1)),
-            prev_frame.datax[:, :, :NUM_SNAPSHOTS-1],
+            prev_frame.data[:, :, :NUM_SNAPSHOTS-1],
             axis = 2)
 
   def NextToken(self):
@@ -381,7 +336,7 @@ class Frame:
     self.data[x1:x2, y1:y2] += np.full((x2-x1, y2-y1,), v)
 
   def CheckSum(self):
-    return np.sum(self.datax)
+    return np.sum(self.data)
 
 
 class Game:
@@ -446,46 +401,63 @@ def clipped_error(x):
   return tf.where(tf.abs(x) < 1.0, 0.5 * tf.square(x), tf.abs(x) - 0.5)
 
 
-class NeuralNetwork:
+def categorical_sample(logits, n):
+  logits = logits - tf.reduce_max(logits, [1], keep_dims=True)
+  i = tf.squeeze(tf.multinomial(logits, 1), [1])
+  return tf.one_hot(i, n)
+
+
+# discount([1, 1, 1], .99) == [2.9701, 1.99, 1.]
+def discount(x, gamma):
+  return scipy.signal.lfilter([1], [1, -gamma], x[::-1], axis=0)[::-1]
+
+
+class ACNeuralNetwork:
   def __init__(self, name, trainable=True):
     var = lambda shape: tf.Variable(
         tf.truncated_normal(shape, stddev=.02), trainable=trainable)
 
     with tf.variable_scope(name):
       if not RAW_IMAGE:
-        # Input 1.
-        self.input1 = tf.placeholder(tf.float32, [None, INPUT_DIM-NIE])
-
-        # Input 2.
-        self.ies = tf.placeholder(tf.float32,
-                                  [None, NUM_INCOMING_ENEMIES, 2*NUM_SNAPSHOTS])
-        ies0 = tf.reshape(self.ies, [-1, 2*NUM_SNAPSHOTS])
-        NIE1 = 8
-        ies1 = tf.nn.relu(tf.matmul(ies0, var([2*NUM_SNAPSHOTS, NIE1])) +
-                          var([NIE1]))
-        ies2 = tf.nn.relu(tf.matmul(ies1, var([NIE1, NIE])) + var([NIE]))
-        ies3 = tf.reshape(ies2, [-1, NUM_INCOMING_ENEMIES, NIE])
-        input2 = tf.reduce_sum(ies3, axis = 1)
-
-        self.input = tf.concat_v2([self.input1, input2], axis=1)
+        # Input.
+        self.input = tf.placeholder(tf.float32, [None, INPUT_DIM], name='input')
         if trainable:
           logging.info('input: %s', self.input.get_shape())
+        x = self.input
 
-        N1 = 32
-        N2 = 24
-        N3 = 16
+        N1 = 64
+        N2 = 64
+        x = tf.nn.elu(tf.matmul(x, var([INPUT_DIM, N1])) + var([N1]))
+        x = tf.nn.elu(tf.matmul(x, var([N1, N2])) + var([N2]))
+        x = tf.expand_dims(x, [0])
 
-        fc1 = tf.nn.relu(tf.matmul(self.input, var([INPUT_DIM, N1])) +
-                         var([N1]))
+        LSTM_SIZE = 64
+        lstm = tf.nn.rnn_cell.LSTMCell(LSTM_SIZE, state_is_tuple=True)
 
-        fc2 = tf.nn.relu(tf.matmul(fc1, var([N1, N2])) + var([N2]))
+        c_init = np.zeros((1, lstm.state_size.c), np.float32)
+        h_init = np.zeros((1, lstm.state_size.h), np.float32)
+        self.state_init = [c_init, h_init]
 
-        fc3 = tf.nn.relu(tf.matmul(fc2, var([N2, N3])) + var([N3]))
+        c_in = tf.placeholder(tf.float32, [1, lstm.state_size.c], name='c')
+        h_in = tf.placeholder(tf.float32, [1, lstm.state_size.h], name='h')
+        self.state_in = [c_in, h_in]
 
-        self.value = tf.matmul(fc3, var([N3, 1])) + var([1])
-        self.advantage = tf.matmul(fc3, var([N3, OUTPUT_DIM])) + var([OUTPUT_DIM])
-        self.output = self.value + (self.advantage -
-            tf.reduce_mean(self.advantage, reduction_indices=1, keep_dims=True))
+        lstm_outputs, lstm_state = tf.nn.dynamic_rnn(
+            lstm, x, initial_state=tf.nn.rnn_cell.LSTMStateTuple(c_in, h_in),
+            sequence_length=tf.shape(self.input)[:1])
+        lstm_c, lstm_h = lstm_state
+        logging.info('lstm_outputs: %s', lstm_outputs.get_shape())
+        logging.info('lstm_c: %s', lstm_c.get_shape())
+        logging.info('lstm_h: %s', lstm_h.get_shape())
+        self.state_out = [lstm_c, lstm_h]
+
+        x = tf.reshape(lstm_outputs, [-1, LSTM_SIZE])
+        self.logits = tf.matmul(x, var([LSTM_SIZE, OUTPUT_DIM])) \
+            + var([OUTPUT_DIM])
+        self.value = tf.reshape(
+            tf.matmul(x, var([LSTM_SIZE, 1])) + var([1]),
+            [-1])
+        self.action = categorical_sample(self.logits, OUTPUT_DIM)
       else:
         # Input image.
         self.input = tf.placeholder(tf.float32,
@@ -534,63 +506,69 @@ class NeuralNetwork:
         self.output = (tf.matmul(fc4, self.w5) + self.b5)
 
     self.theta = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope=name)
-    assert len(self.theta) == (10 if RAW_IMAGE else 14), len(self.theta)
+    assert len(self.theta) == (10 if RAW_IMAGE else 10), len(self.theta)
 
     if trainable:
-      # Training.
-      self.action = tf.placeholder(tf.int32, [None])
-      action_one_hot = tf.one_hot(self.action, OUTPUT_DIM)
-      self.y = tf.placeholder(tf.float32, [None])
-      q_action = tf.reduce_sum(tf.multiply(self.output, action_one_hot),
-          reduction_indices = 1)
-      self.cost = tf.reduce_mean(clipped_error(q_action - self.y))
-      self.optimizer = tf.train.RMSPropOptimizer(
-          learning_rate=0.00025, momentum=.95, epsilon=1e-2).minimize(self.cost)
+      self.actual_action = tf.placeholder(tf.float32, [None, OUTPUT_DIM],
+          name='actual_action')
+      self.advantage = tf.placeholder(tf.float32, [None], name='advantage')
+      self.r = tf.placeholder(tf.float32, [None], name='r')
+
+      log_prob = tf.nn.log_softmax(self.logits)
+      prob = tf.nn.softmax(self.logits)
+
+      policy_loss = -tf.reduce_sum(
+          tf.reduce_sum(log_prob * self.actual_action, [1]) * self.advantage)
+      value_loss = 0.5 * tf.reduce_sum(tf.square(self.value - self.r))
+      entropy = -tf.reduce_sum(prob * log_prob)
+      self.loss = policy_loss + 0.5 * value_loss - 0.01 * entropy
+
+      grads = tf.gradients(self.loss, self.theta)
+      grads, _ = tf.clip_by_global_norm(grads, 40.0)
+
+      self.optimizer = tf.train.AdamOptimizer(1e-4).apply_gradients(
+          zip(grads, self.theta))
 
   def Vars(self):
     return self.theta
 
-  def EvalAll(self, frames):
-    return tf.get_default_session().run(
-        [self.output, self.value, self.advantage], {
-            self.input1: [f.datax for f in frames],
-            self.ies: [f.ies for f in frames]
+  def InitialState(self):
+    return self.state_init
+
+  def Eval(self, frame, state):
+    ret = tf.get_default_session().run(
+        [self.action, self.value] + self.state_out + [self.logits], {
+            self.input: [frame.data],
+            self.state_in[0]: state[0],
+            self.state_in[1]: state[1],
         })
+    return ret[0][0], ret[1][0], ret[2:4], ret[4][0]
 
-  def Eval(self, frames):
-    return self.EvalAll(frames)[0]
+  def Train(self, experience):
+    GAMMA = 0.99
+    LAMBDA = 1.0
 
-  def Train(self, tnn, mini_batch):
-    frame_batch = [d[0] for d in mini_batch]
-    frame1_batch = [d[1] for d in mini_batch]
-    action_batch = [f.action_id for f in frame1_batch]
+    _, last_frame, _, last_state = experience[-1]
+    terminal = last_frame.terminal
+    last_value = self.Eval(last_frame, last_state)[1] if not terminal else 0.
+    inputs = np.array([f.data for f, _, _, _ in experience])
+    frames = [e[1] for e in experience]
+    actions = np.array([one_hot(OUTPUT_DIM, f.action_id) for f in frames])
+    rewards = np.array([f.reward for f in frames])
+    values = np.array([e[2] for e in experience] + [last_value])
+    rs = discount(np.append(rewards, [last_value]), GAMMA)[:-1]
+    delta_t = rewards + GAMMA * values[1:] - values[:-1]
+    advantages = discount(delta_t, GAMMA * LAMBDA)
+    state = experience[0][3]
 
-    t_q1_batch = tnn.Eval(frame1_batch)
-    y_batch = [0] * len(mini_batch)
-    if not DOUBLE_Q:
-      for i in xrange(len(mini_batch)):
-        reward = frame1_batch[i].reward
-        if frame1_batch[i].terminal:
-          y_batch[i] = reward
-        else:
-          y_batch[i] = reward + GAMMA * np.max(t_q1_batch[i])
-    else:
-      q1_batch = self.Eval(frame1_batch)
-      for i in xrange(len(mini_batch)):
-        reward = frame1_batch[i].reward
-        if frame1_batch[i].terminal:
-          y_batch[i] = reward
-        else:
-          y_batch[i] = reward + GAMMA * t_q1_batch[i][np.argmax(q1_batch[i])]
-
-    feed_dict = {
-        self.input1: [f.datax for f in frame_batch],
-        self.ies: [f.ies for f in frame_batch],
-        self.action: action_batch,
-        self.y: y_batch,
-    }
-    self.optimizer.run(feed_dict)
-    return self.cost.eval(feed_dict)
+    self.optimizer.run({
+      self.input: inputs,
+      self.actual_action: actions,
+      self.advantage: advantages,
+      self.r: rs,
+      self.state_in[0]: state[0],
+      self.state_in[1]: state[1],
+    })
 
   def CopyFrom(self, sess, src):
     for v1, v2 in zip(self.Vars(), src.Vars()):
@@ -759,12 +737,12 @@ class PathNeuralNetwork:
     return [np.sum(var.eval()) for var in self.Vars()]
 
 
-def format_list(l):
-  return '[' + ' '.join(['%6.2f' % x for x in l]) + ']'
+def format_list(l, fmt='%6.2f'):
+  return '[' + ' '.join([fmt % x for x in l]) + ']'
 
 
 class SavedVar:
-  def __init__(self, init_val, name):
+  def __init__(self, name, init_val):
     self.var = tf.Variable(init_val, trainable=False, name=name)
     self.input = tf.placeholder(self.var.dtype, self.var.get_shape())
     self.assign = self.var.assign(self.input)
@@ -800,6 +778,12 @@ class SimpleSaver:
 
 
 def main(unused_argv):
+  TRAIN_LENGTH = 20
+  PATH_TEST_INTERVAL = 1000
+  SUMMARY_INTERVAL = 10000
+  SAVE_INTERVAL = 10000
+  CHECKPOINT_FILE = 'model.ckpt'
+
   logging.basicConfig(level=logging.DEBUG if FLAGS.debug else logging.INFO,
       format='%(message)s')
 
@@ -808,92 +792,77 @@ def main(unused_argv):
     server = subprocess.Popen([FLAGS.server, FLAGS.rom, str(port)])
     time.sleep(1)
 
-  memory = deque()
-  nn = NeuralNetwork('nn')
-  tnn = NeuralNetwork('tnn', trainable=False)
+  saved_step = SavedVar('step', 0)
+  saved_ep = SavedVar('ep', 0)
 
-  saved_step = SavedVar(0, 'step')
-  saved_epsilon = SavedVar(INITIAL_EPSILON, 'epsilon')
+  ac = ACNeuralNetwork('ac')
+  experience = []
+  length = 0
+  rewards = 0
 
-  episode = deque()
+  pframes = deque()
   pdata = []
   pnn = PathNeuralNetwork('pnn')
+  p_test_cost = 0
+  p_train_cost = 0
+
+  action_summary = defaultdict(int)
 
   with tf.Session() as sess:
     sess.run(tf.global_variables_initializer())
 
-    saver = SimpleSaver('saver', nn.Vars() + [saved_step.var,
-      saved_epsilon.var], FLAGS.checkpoint_dir, CHECKPOINT_FILE)
+    saver = SimpleSaver('saver', ac.Vars() + [saved_step.var],
+        FLAGS.checkpoint_dir, CHECKPOINT_FILE)
     saver.Restore(sess)
-
-    tnn.CopyFrom(sess, nn)
-
-    step = saved_step.Eval()
-    epsilon = FLAGS.eps or saved_epsilon.Eval()
 
     pnn_saver = SimpleSaver('pnn', pnn.Vars(), FLAGS.pnn_dir, CHECKPOINT_FILE)
     pnn_saver.Restore(sess)
 
-    cost = 0
-    p_test_cost = 0
-    p_train_cost = 0
-    value = 0
-    advantage = []
+    step = saved_step.Eval()
+    ep = saved_ep.Eval()
 
     game = Game(port)
     game.Start(step)
     frame = game.Step('_')
 
-    action_summary = defaultdict(int)
+    state = ac.InitialState()
 
     while True:
-      if random.random() <= epsilon:
-        rand = True
-        action = ACTION_NAMES[random.randrange(OUTPUT_DIM)]
-        value = 0
-        advantage = []
-      else:
-        rand = False
-        qs, values, advantages = nn.EvalAll([frame])
-        q, value, advantage = qs[0], values[0], advantages[0]
-        action = ACTION_NAMES[np.argmax(q)]
-        action_summary[action] += 1
+      # eval action
+      action, value, state, logits = ac.Eval(frame, state)
+      action = ACTION_NAMES[action.argmax()]
 
+      # eval paths
       paths = []
-      if FLAGS.send_paths and episode:
-        inputs_map = PathNeuralNetwork.EncodePathInputs(list(episode))
+      if FLAGS.send_paths and pframes:
+        inputs_map = PathNeuralNetwork.EncodePathInputs(list(pframes))
         pouts = pnn.Eval(inputs_map.values())
         paths = PathNeuralNetwork.DecodePathOutputs(
-            pouts, inputs_map.keys(), episode[-1])
+            pouts, inputs_map.keys(), pframes[-1])
 
+      # take action
       frame1 = game.Step(action, paths=paths)
       step = game.seq()
 
-      if not frame.terminal:
-        memory.append((frame, frame1))
-        if len(memory) > REPLAY_MEMORY:
-          memory.popleft()
+      experience.append((frame, frame1, value, state))
+      length += 1
+      rewards += frame1.reward
 
-      episode.append(frame1)
-      if len(episode) > 2*PATH_LEN:
-        episode.popleft()
-      if len(episode) >= 2*PATH_LEN and FLAGS.train_paths:
-        pdata.extend(PathNeuralNetwork.EncodePathData(list(episode)))
-      if frame1.terminal:
-        episode.clear()
+      frame = frame1
 
-      if step % PATH_TEST_INTERVAL == 0 and pdata:
-        p_test_cost, inputs, targets, outputs = pnn.Test(pdata[-5:])
-        logging.info(
-            'pnn test: cost: %s\n '
-            'inputs:\n%s\n targets:\n%s\n outputs:\n%s\n delta:\n%s',
-            p_test_cost, inputs, targets, outputs, outputs - targets)
+      logging.info(
+          "Step %d value: %7.3f action: %s reward: %5.2f ac: %s logits: %s" %
+          (step, value, frame.action, frame.reward, format_list(ac.CheckSum()),
+            format_list(logits, fmt='%7.3f')))
 
-      if step % TRAIN_INTERVAL == 0 and step > OBSERVE_STEPS:
-        mini_batch = random.sample(memory, min(len(memory), MINI_BATCH_SIZE))
-        if memory:
-          mini_batch.append(memory[-1])
-        cost = nn.Train(tnn, mini_batch)
+      # pnn training
+      pframes.append(frame)
+      if len(pframes) > 2*PATH_LEN:
+        pframes.popleft()
+
+      if FLAGS.train_paths:
+        if len(pframes) >= 2*PATH_LEN:
+          pdata.extend(PathNeuralNetwork.EncodePathData(list(pframes)))
 
         if len(pdata) >= 1000:
           EPOCHS = 2
@@ -909,31 +878,40 @@ def main(unused_argv):
               p_train_cost)
           pdata = []
 
-      frame = frame1
+      # pnn testing
+      if step % PATH_TEST_INTERVAL == 0 and pdata:
+        p_test_cost, inputs, targets, outputs = pnn.Test(pdata[-5:])
+        logging.info(
+            'pnn test: cost: %s\n '
+            'inputs:\n%s\n targets:\n%s\n outputs:\n%s\n delta:\n%s',
+            p_test_cost, inputs, targets, outputs, outputs - targets)
 
-      if epsilon > FINAL_EPSILON:
-        epsilon -= (INITIAL_EPSILON - FINAL_EPSILON) / EXPLORE_STEPS
+      # policy training
+      if len(experience) >= TRAIN_LENGTH or frame.terminal:
+        ac.Train(experience)
+        experience = []
 
-      if step % UPDATE_TARGET_NETWORK_INTERVAL == 0:
-        logging.info(action_summary)
+      # reset on terminal
+      if frame.terminal:
+        logging.info('episode %d: length: %d rewards: %f', ep, length, rewards)
+        ep += 1
+        frame = game.Step('_')
+        length = 0
+        rewards = 0
+        pframes.clear()
+
+      # summary
+      action_summary[frame.action] += 1
+      if step % SUMMARY_INTERVAL == 0:
+        logging.info('actions %s', action_summary)
         action_summary.clear()
 
-        logging.info('Target network before: %s', tnn.CheckSum())
-        tnn.CopyFrom(sess, nn)
-        logging.info('Target network after: %s', tnn.CheckSum())
-
+      # save models
       if step % SAVE_INTERVAL == 0:
         saved_step.Assign(sess, step)
-        saved_epsilon.Assign(sess, epsilon)
+        saved_ep.Assign(sess, ep)
         saver.Save(sess, global_step=step)
         pnn_saver.Save(sess, global_step=step)
-
-      logging.info(
-          "Step %d eps: %.6f value: %7.3f adv: %-43s action: %s%s "
-          "reward: %5.2f %s pnn: %s p_train_cost: %.6f p_test_cost: %.6f" %
-          (step, epsilon, value, format_list(advantage), frame1.action,
-            ' ?'[rand], frame1.reward, ' t'[frame1.terminal],
-            format_list(pnn.CheckSum()), p_train_cost, p_test_cost))
 
 
 if __name__ == '__main__':
