@@ -30,7 +30,7 @@ import tensorflow as tf
 flags = tf.app.flags
 FLAGS = flags.FLAGS
 
-flags.DEFINE_bool('debug', '', 'enable logging.debug')
+flags.DEFINE_bool('debug', False, 'enable logging.debug')
 flags.DEFINE_string('server', '', 'server binary')
 flags.DEFINE_string('rom', './galaxian.nes', 'galaxian nes rom file')
 flags.DEFINE_string('checkpoint_dir', 'models/2.28', 'checkpoint dir')
