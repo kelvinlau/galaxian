@@ -796,6 +796,7 @@ def main(unused_argv):
   saved_ep = SavedVar('ep', 0)
 
   ac = ACNeuralNetwork('ac')
+  state = ac.InitialState()
   experience = []
   length = 0
   rewards = 0
@@ -824,8 +825,6 @@ def main(unused_argv):
     game = Game(port)
     game.Start(step)
     frame = game.Step('_')
-
-    state = ac.InitialState()
 
     while True:
       # eval action
@@ -896,6 +895,7 @@ def main(unused_argv):
         logging.info('episode %d: length: %d rewards: %f', ep, length, rewards)
         ep += 1
         frame = game.Step('_')
+        state = ac.InitialState()
         length = 0
         rewards = 0
         pframes.clear()
