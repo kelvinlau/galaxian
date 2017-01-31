@@ -36,8 +36,8 @@ flags.DEFINE_string('rom', './galaxian.nes', 'galaxian nes rom file')
 flags.DEFINE_string('checkpoint_dir', 'models/2.28', 'checkpoint dir')
 flags.DEFINE_integer('port', 62343, 'server port to conenct')
 flags.DEFINE_bool('train_paths', False, 'train pnn')
-flags.DEFINE_string('pnn_dir', 'models/pnn10', 'pnn model dir')
 flags.DEFINE_bool('send_paths', False, 'send path to render by lua server')
+flags.DEFINE_string('pnn_dir', 'models/pnn10', 'pnn model dir')
 
 
 # Game input/output.
