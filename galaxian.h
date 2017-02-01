@@ -113,6 +113,10 @@ int GetScore() {
   return score;
 }
 
+int GetLifes() {
+  return RAM[0x42];
+}
+
 State GetState() {
   State s;
   s.galaxian.x = (RAM[0xE4] + 128) % 256;
@@ -123,7 +127,7 @@ State GetState() {
   s.bullets = GetBullets();
   s.missile = GetMissile();
   s.score = GetScore();
-  s.lifes = RAM[0x42];
+  s.lifes = GetLifes();
   return s;
 }
 

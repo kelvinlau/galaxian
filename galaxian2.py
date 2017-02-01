@@ -894,8 +894,6 @@ def main(unused_argv):
       # reset on terminal
       if frame.terminal:
         logging.info('episode %d: length: %d rewards: %f', ep, length, rewards)
-        if length > 3600:
-          logging.warn('suspicious long episode of length %d, bug?', length)
         ep += 1
         frame = game.Step('_')
         state = ac.InitialState()

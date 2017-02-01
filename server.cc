@@ -74,6 +74,7 @@ class Server {
     bool loaded_from_beginning = true;
     int prev_score = -1;
     int rewards = 0;
+    int length = 0;
     int max_rewards = 0;
     int max_level = 0;
     deque<int> episode_rewards;
@@ -101,8 +102,7 @@ class Server {
 
       for (int i = 0; i < 5; ++i) {
         Emulator::Step(input);
-        if (IsDead()) {
-          reward = 0;
+        if (IsDead() || GetLifes() < 2) {
           terminal = true;
           break;
         }
@@ -118,6 +118,8 @@ class Server {
         prev_score = s.score;
         rewards += reward;
         max_rewards = std::max(max_rewards, rewards);
+        ++length;
+        CHECK_LE(length, 3600) << "Suspicious long episode: " << length;
       } else {
         loaded_from_beginning = Random() < 0.5;
         Emulator::Load(loaded_from_beginning ? &beginning : &reload);
@@ -132,6 +134,7 @@ class Server {
             Average(episode_rewards), Median(episode_rewards));
         prev_score = -1;
         rewards = 0;
+        length = 0;
       }
     }
   }
