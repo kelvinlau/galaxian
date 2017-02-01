@@ -759,7 +759,8 @@ class SimpleSaver:
     self.name = name
     self.model_dir = model_dir
     self.path = os.path.join(model_dir, filename)
-    self.saver = tf.train.Saver(var_list)
+    self.saver = tf.train.Saver(var_list, max_to_keep=1000,
+        keep_checkpoint_every_n_hours=1, pad_step_number=True)
     if not os.path.exists(model_dir):
       os.makedirs(model_dir)
 
