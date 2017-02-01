@@ -119,7 +119,8 @@ class Server {
         rewards += reward;
         max_rewards = std::max(max_rewards, rewards);
         ++length;
-        CHECK_LE(length, 3600) << "Suspicious long episode: " << length;
+        CHECK_LE(length, 3600) << "Suspicious long episode: " << length
+                               << " rewards: " << rewards;
       } else {
         loaded_from_beginning = Random() < 0.5;
         Emulator::Load(loaded_from_beginning ? &beginning : &reload);
