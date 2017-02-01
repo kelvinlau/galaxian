@@ -54,7 +54,6 @@ else:
   DX = 4
   WIDTH = 256 / DX
   FOCUS = 16
-  NUM_SNAPSHOTS = 5
   INPUT_DIM = 3 + (2*FOCUS+3) + NUM_INCOMING_ENEMIES*5 + 2*WIDTH
 PATH_LEN = 12
 ACTION_NAMES = ['_', 'L', 'R', 'A', 'l', 'r']
@@ -101,6 +100,14 @@ def sign(x):
   return 1 if x > 0 else -1
 
 
+def hmap_string(hmap):
+  def s(h):
+    if h <= 0: return '_'
+    if h >= 1: return 'x'
+    return str(round(h * 10))[0]
+  return ''.join([s(h) for h in hmap])
+
+
 def enemy_type(row):
   assert 0 <= row <= 5
   if row <= 2:
@@ -112,7 +119,7 @@ def enemy_type(row):
 
 
 class Frame:
-  def __init__(self, line, prev_frames):
+  def __init__(self, line, prev_frames, pnn):
     """Parse a Frame from a line."""
     self._tokens = line.split()
     self._idx = 0
@@ -197,8 +204,7 @@ class Frame:
       self.data.append(sl)
       self.data.append(sr)
       self.data.append(svx)
-      logging.debug('smap [%s] %s %s %s',
-          ''.join(['x' if h > 0 else '_' for h in smap]), sl, sr, svx)
+      logging.debug('smap [%s] %s %s %s', hmap_string(smap), sl, sr, svx)
 
       # incoming enemy x, y relative to galaxian, and enemy type.
       ies = []
@@ -214,39 +220,36 @@ class Frame:
 
       # hit map
       def ix(x):
-        return max(0, min(WIDTH-1, (x-galaxian.x+128)/DX))
+        return max(0, min(WIDTH-1, (int(round(x))-galaxian.x+128)/DX))
       # out-of-bound tiles have penality.
       imap = [0. if ix(0) <= i <= ix(255) else 1. for i in range(WIDTH)]
       bmap = imap[:]
+
+      self.paths = {}
       if prev_frames:
-        steps = len(prev_frames)
         y1 = galaxian.y-8
         y2 = galaxian.y+8
+
+        # incoming enemy paths
+        pins_map = PathNeuralNetwork.EncodePathInputs(list(prev_frames)+[self])
+        pouts = pnn.Eval(pins_map.values())
+        self.paths = PathNeuralNetwork.DecodePathOutputs(
+            pouts, pins_map.keys(), self.incoming_enemies)
         for eid, e in self.incoming_enemies.iteritems():
-          pe = None  # the furthest frame having this enemy
-          for pf in prev_frames:
-            if eid in pf.incoming_enemies:
-              pe = pf.incoming_enemies[eid]
-              break
-          x1, x2, t = None, None, None
-          if pe and pe.y < e.y < y1:
-            x1 = int(round((e.x-pe.x)*1.0/(e.y-pe.y)*(y1-pe.y)+pe.x))
-            x2 = int(round((e.x-pe.x)*1.0/(e.y-pe.y)*(y2-pe.y)+pe.x))
-            if x1 > x2:
-              x1, x2 = x2, x1
-            t = (y1-e.y)*1.0/(e.y-pe.y)*steps
-          elif y1 <= e.y <= y2:
-            x1 = x2 = e.x
-            t = 0
-          if x1 is not None:
-            hit = max(0., 1.-t/24.)
-            for i in xrange(ix(x1), ix(x2)+1):
-              imap[i] += hit
+          path = self.paths.get(eid)
+          if path is None: continue
+          for t, p in enumerate(path):
+            if y1 <= p.y <= y2:
+              imap[ix(p.x)] += max(0., 1-t/24.)
+
+        # bullets
         for eid, e in self.bullets.iteritems():
           pe = None  # the furthest frame having this bullet
+          steps = len(prev_frames)
           for pf in prev_frames:
             if eid in pf.bullets:
               pe = pf.bullets[eid]
+              steps -= 1
               break
           x1, x2, t = None, None, None
           if pe and pe.y < e.y < y1:
@@ -264,8 +267,8 @@ class Frame:
               bmap[i] += hit
       self.data += imap
       self.data += bmap
-      logging.debug('imap [%s]', ''.join(['x' if h>0 else '_' for h in imap]))
-      logging.debug('bmap [%s]', ''.join(['x' if h>0 else '_' for h in bmap]))
+      logging.debug('imap [%s]', hmap_string(imap))
+      logging.debug('bmap [%s]', hmap_string(bmap))
 
       if not self.terminal:
         self.reward -= min(1., bmap[ix(galaxian.x)]) * .25
@@ -344,11 +347,12 @@ class Frame:
 
 
 class Game:
-  def __init__(self, port):
+  def __init__(self, port, pnn):
     self._sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     self._sock.connect(('localhost', port))
     self._fin = self._sock.makefile()
     self._prev_frames = deque()
+    self._pnn = pnn
 
   def Start(self, seq):
     self._seq = seq
@@ -360,14 +364,15 @@ class Game:
 
     msg = action + ' ' + str(self._seq)
     for path in paths:
-      for x in path:
-        msg += ' ' + str(int(x))
+      for p in path:
+        msg += ' ' + str(int(p.x))
+        msg += ' ' + str(int(p.y))
     logging.debug('Step %s', msg)
     self._sock.send(msg + '\n')
 
     line = self._fin.readline().strip()
 
-    frame = Frame(line, self._prev_frames)
+    frame = Frame(line, self._prev_frames, self._pnn)
 
     assert frame.seq == self._seq, \
         'Expecting %d, got %d' % (self._seq, frame.seq)
@@ -376,7 +381,7 @@ class Game:
       self._prev_frames.clear()
     else:
       self._prev_frames.append(frame)
-      if len(self._prev_frames) > NUM_SNAPSHOTS-1:
+      if len(self._prev_frames) > PATH_LEN-1:
         self._prev_frames.popleft()
 
     return frame
@@ -703,20 +708,20 @@ class PathNeuralNetwork:
     return data
 
   @staticmethod
-  def DecodePathOutputs(outputs, eids, cur):
+  def DecodePathOutputs(outputs, eids, incoming_enemies):
     assert len(eids) == len(outputs), '{} {}'.format(len(eids), len(outputs))
 
-    paths = []
+    paths = {}
     for eid, out in zip(eids, outputs):
-      e = cur.incoming_enemies[eid]
+      e = incoming_enemies[eid]
       x = e.x
       y = e.y
       path = []
       for i in xrange(0, len(out), 2):
         x += out[i]
         y += out[i+1]
-        path += [x, y]
-      paths.append(path)
+        path.append(Point(x, y))
+      paths[eid] = path
     return paths
 
   def Train(self, data):
@@ -827,7 +832,7 @@ def main(unused_argv):
     step = saved_step.Eval()
     ep = saved_ep.Eval()
 
-    game = Game(port)
+    game = Game(port, pnn)
     game.Start(step)
     frame = game.Step('_')
 
@@ -835,14 +840,7 @@ def main(unused_argv):
       # eval action
       action, value, state, logits = ac.Eval(frame, state)
       action = ACTION_NAMES[action.argmax()]
-
-      # eval paths
-      paths = []
-      if FLAGS.send_paths and pframes:
-        inputs_map = PathNeuralNetwork.EncodePathInputs(list(pframes))
-        pouts = pnn.Eval(inputs_map.values())
-        paths = PathNeuralNetwork.DecodePathOutputs(
-            pouts, inputs_map.keys(), pframes[-1])
+      paths = frame.paths.values() if FLAGS.send_paths else []
 
       # take action
       frame1 = game.Step(action, paths=paths)
