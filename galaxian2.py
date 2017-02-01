@@ -232,6 +232,8 @@ class Frame:
           if pe and pe.y < e.y < y1:
             x1 = int(round((e.x-pe.x)*1.0/(e.y-pe.y)*(y1-pe.y)+pe.x))
             x2 = int(round((e.x-pe.x)*1.0/(e.y-pe.y)*(y2-pe.y)+pe.x))
+            if x1 > x2:
+              x1, x2 = x2, x1
             t = (y1-e.y)*1.0/(e.y-pe.y)*steps
           elif y1 <= e.y <= y2:
             x1 = x2 = e.x
@@ -250,6 +252,8 @@ class Frame:
           if pe and pe.y < e.y < y1:
             x1 = int(round((e.x-pe.x)*1.0/(e.y-pe.y)*(y1-pe.y)+pe.x))
             x2 = int(round((e.x-pe.x)*1.0/(e.y-pe.y)*(y2-pe.y)+pe.x))
+            if x1 > x2:
+              x1, x2 = x2, x1
             t = (y1-e.y)*1.0/(e.y-pe.y)*steps
           elif y1 <= e.y <= y2:
             x1 = x2 = e.x
