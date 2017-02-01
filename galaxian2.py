@@ -351,8 +351,8 @@ class Game:
     self._sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     self._sock.connect(('localhost', port))
     self._fin = self._sock.makefile()
-    self._prev_frames = deque()
     self._pnn = pnn
+    self.last_frames = deque()
 
   def Start(self, seq):
     self._seq = seq
@@ -372,17 +372,17 @@ class Game:
 
     line = self._fin.readline().strip()
 
-    frame = Frame(line, self._prev_frames, self._pnn)
+    frame = Frame(line, self.last_frames, self._pnn)
 
     assert frame.seq == self._seq, \
         'Expecting %d, got %d' % (self._seq, frame.seq)
 
     if frame.terminal:
-      self._prev_frames.clear()
+      self.last_frames.clear()
     else:
-      self._prev_frames.append(frame)
-      if len(self._prev_frames) > PATH_LEN-1:
-        self._prev_frames.popleft()
+      self.last_frames.append(frame)
+      if len(self.last_frames) > 2*PATH_LEN:
+        self.last_frames.popleft()
 
     return frame
 
@@ -634,7 +634,6 @@ class PathNeuralNetwork:
   def _EncodePathInput(frames, eid):
     pin = []
     pe = None
-    frames = frames[-PATH_LEN:]
     for f in frames:
       e = f.incoming_enemies.get(eid)
       if not e or e.y < 72:
@@ -661,6 +660,7 @@ class PathNeuralNetwork:
 
   @staticmethod
   def EncodePathInputs(frames):
+    frames = frames[-PATH_LEN:]
     cur = frames[-1]
     ret = {}
     for eid in cur.incoming_enemies:
@@ -674,7 +674,7 @@ class PathNeuralNetwork:
     assert len(frames) >= 2*PATH_LEN
 
     data = []
-    in_frames = frames[:-PATH_LEN]
+    in_frames = frames[-2*PATH_LEN:-PATH_LEN]
     out_frames = frames[-PATH_LEN:]
     cur = in_frames[-1]
     latest = out_frames[-1]
@@ -811,7 +811,6 @@ def main(unused_argv):
   length = 0
   rewards = 0
 
-  pframes = deque()
   pdata = []
   pnn = PathNeuralNetwork('pnn')
   p_test_cost = 0
@@ -858,13 +857,9 @@ def main(unused_argv):
             format_list(logits, fmt='%7.3f')))
 
       # pnn training
-      pframes.append(frame)
-      if len(pframes) > 2*PATH_LEN:
-        pframes.popleft()
-
       if FLAGS.train_paths:
-        if len(pframes) >= 2*PATH_LEN:
-          pdata.extend(PathNeuralNetwork.EncodePathData(list(pframes)))
+        if len(game.last_frames) >= 2*PATH_LEN:
+          pdata.extend(PathNeuralNetwork.EncodePathData(list(game.last_frames)))
 
         if len(pdata) >= 1000:
           EPOCHS = 2
@@ -901,7 +896,6 @@ def main(unused_argv):
         state = ac.InitialState()
         length = 0
         rewards = 0
-        pframes.clear()
 
       # summary
       action_summary[frame.action] += 1
