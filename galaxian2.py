@@ -5,10 +5,11 @@ https://storage.googleapis.com/deepmind-media/dqn/DQNNaturePaper.pdf
 https://www.nervanasys.com/demystifying-deep-reinforcement-learning/
 https://medium.com/@awjuliani/simple-reinforcement-learning-with-tensorflow-part-4-deep-q-networks-and-beyond-8438a3e2b8df#.tithx7juq
 
+TODO: Add var names.
+TODO: Raw image as input.
 TODO: Save png to verify input data.
-TODO: Training the model only on score increases?
 TODO: Dropout/Bayesian.
-TODO: A3C.
+TODO: Model based, Dyna, Sarsa, TD search, Monte Carlo.
 """
 
 from __future__ import print_function
@@ -21,6 +22,7 @@ import math
 import socket
 import subprocess
 import logging
+import threading
 #import cv2
 import scipy.signal
 import numpy as np
@@ -33,11 +35,11 @@ FLAGS = flags.FLAGS
 flags.DEFINE_bool('debug', False, 'enable logging.debug')
 flags.DEFINE_string('server', '', 'server binary')
 flags.DEFINE_string('rom', './galaxian.nes', 'galaxian nes rom file')
-flags.DEFINE_string('checkpoint_dir', 'models/2.28', 'checkpoint dir')
+flags.DEFINE_string('logdir', 'logs/2.28', 'Supervisor logdir')
 flags.DEFINE_integer('port', 62343, 'server port to conenct')
-flags.DEFINE_bool('train_paths', False, 'train pnn')
+flags.DEFINE_integer('num_workers', 1, 'num servers')
+flags.DEFINE_bool('train_pnn', False, 'train pnn')
 flags.DEFINE_bool('send_paths', False, 'send path to render by lua server')
-flags.DEFINE_string('pnn_dir', 'models/pnn10', 'pnn model dir')
 
 
 # Game input/output.
@@ -353,13 +355,20 @@ class Game:
     self._fin = self._sock.makefile()
     self._pnn = pnn
     self.last_frames = deque()
+    self.length = 0
+    self.rewards = 0
 
-  def Start(self, seq):
+  def Start(self, seq=0):
     self._seq = seq
     self._sock.send('galaxian:start %d\n' % (seq+1))
     assert self._fin.readline().strip() == 'ack'
 
   def Step(self, action, paths=[]):
+    if self.last_frames and self.last_frames[-1].terminal:
+      self.last_frames.clear()
+      self.length = 0
+      self.rewards = 0
+
     self._seq += 1
 
     msg = action + ' ' + str(self._seq)
@@ -377,12 +386,11 @@ class Game:
     assert frame.seq == self._seq, \
         'Expecting %d, got %d' % (self._seq, frame.seq)
 
-    if frame.terminal:
-      self.last_frames.clear()
-    else:
-      self.last_frames.append(frame)
-      if len(self.last_frames) > 2*PATH_LEN:
-        self.last_frames.popleft()
+    self.last_frames.append(frame)
+    if len(self.last_frames) > 2*PATH_LEN:
+      self.last_frames.popleft()
+    self.length += 1
+    self.rewards += frame.reward
 
     return frame
 
@@ -422,16 +430,15 @@ def discount(x, gamma):
 
 
 class ACNeuralNetwork:
-  def __init__(self, name, trainable=True):
+  def __init__(self, name, global_ac=None):
     var = lambda shape: tf.Variable(
-        tf.truncated_normal(shape, stddev=.02), trainable=trainable)
+        tf.truncated_normal(shape, stddev=.02))
 
     with tf.variable_scope(name):
       if not RAW_IMAGE:
         # Input.
         self.input = tf.placeholder(tf.float32, [None, INPUT_DIM], name='input')
-        if trainable:
-          logging.info('input: %s', self.input.get_shape())
+        logging.info('input: %s', self.input.get_shape())
         x = self.input
 
         N1 = 64
@@ -471,8 +478,7 @@ class ACNeuralNetwork:
         # Input image.
         self.input = tf.placeholder(tf.float32,
             [None, SIDE, SIDE, NUM_SNAPSHOTS])
-        if trainable:
-          logging.info('input: %s', self.input.get_shape())
+        logging.info('input: %s', self.input.get_shape())
 
         # Conv 1.
         self.w1 = var([8, 8, NUM_SNAPSHOTS, 32])
@@ -480,8 +486,7 @@ class ACNeuralNetwork:
         conv1 = tf.nn.relu(tf.nn.conv2d(
           self.input, self.w1, strides = [1, 4, 4, 1], padding = "VALID")
           + self.b1)
-        if trainable:
-          logging.info('conv1: %s', conv1.get_shape())
+        logging.info('conv1: %s', conv1.get_shape())
 
         # Conv 2.
         self.w2 = var([4, 4, 32, 64])
@@ -489,8 +494,7 @@ class ACNeuralNetwork:
         conv2 = tf.nn.relu(tf.nn.conv2d(
           conv1, self.w2, strides = [1, 2, 2, 1], padding = "VALID")
           + self.b2)
-        if trainable:
-          logging.info('conv2: %s', conv2.get_shape())
+        logging.info('conv2: %s', conv2.get_shape())
 
         # Conv 3.
         self.w3 = var([3, 3, 64, 64])
@@ -498,8 +502,7 @@ class ACNeuralNetwork:
         conv3 = tf.nn.relu(tf.nn.conv2d(
           conv2, self.w3, strides = [1, 1, 1, 1], padding = "VALID")
           + self.b3)
-        if trainable:
-          logging.info('conv3: %s', conv3.get_shape())
+        logging.info('conv3: %s', conv3.get_shape())
 
         # Flatten conv 3.
         conv3_flat = tf.reshape(conv3, [-1, 3136])
@@ -517,7 +520,7 @@ class ACNeuralNetwork:
     self.theta = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope=name)
     assert len(self.theta) == (10 if RAW_IMAGE else 10), len(self.theta)
 
-    if trainable:
+    if global_ac is not None:
       self.actual_action = tf.placeholder(tf.float32, [None, OUTPUT_DIM],
           name='actual_action')
       self.advantage = tf.placeholder(tf.float32, [None], name='advantage')
@@ -536,7 +539,10 @@ class ACNeuralNetwork:
       grads, _ = tf.clip_by_global_norm(grads, 40.0)
 
       self.optimizer = tf.train.AdamOptimizer(1e-4).apply_gradients(
-          zip(grads, self.theta))
+          zip(grads, global_ac.theta))
+
+      self.sync = tf.group(
+          *[dst.assign(src) for dst, src in zip(self.theta, global_ac.theta)])
 
   def Vars(self):
     return self.theta
@@ -579,9 +585,8 @@ class ACNeuralNetwork:
       self.state_in[1]: state[1],
     })
 
-  def CopyFrom(self, sess, src):
-    for v1, v2 in zip(self.Vars(), src.Vars()):
-      sess.run(v1.assign(v2))
+  def Sync(self):
+    tf.get_default_session().run(self.sync)
 
   def CheckSum(self):
     return [np.sum(var.eval()) for var in self.Vars()]
@@ -753,162 +758,161 @@ def format_list(l, fmt='%6.2f'):
 class SavedVar:
   def __init__(self, name, init_val):
     self.var = tf.Variable(init_val, trainable=False, name=name)
-    self.input = tf.placeholder(self.var.dtype, self.var.get_shape())
-    self.assign = self.var.assign(self.input)
+    self.val = tf.placeholder(self.var.dtype, self.var.get_shape())
+    self.assign = self.var.assign(self.val)
+    self.inc = self.var.assign_add(self.val)
 
   def Eval(self):
     return self.var.eval()
 
-  def Assign(self, sess, val):
-    sess.run(self.assign, {self.input: val})
+  def Assign(self, val):
+    tf.get_default_session().run(self.assign, {self.val: val})
 
-
-class SimpleSaver:
-  def __init__(self, name, var_list, model_dir, filename):
-    self.name = name
-    self.model_dir = model_dir
-    self.path = os.path.join(model_dir, filename)
-    self.saver = tf.train.Saver(var_list, max_to_keep=1000,
-        keep_checkpoint_every_n_hours=1, pad_step_number=True)
-    if not os.path.exists(model_dir):
-      os.makedirs(model_dir)
-
-  def Restore(self, sess):
-    ckpt = tf.train.get_checkpoint_state(self.model_dir)
-    if ckpt and ckpt.model_checkpoint_path:
-      self.saver.restore(sess, ckpt.model_checkpoint_path)
-      logging.info("%s: Restored from %s", self.name,
-          ckpt.model_checkpoint_path)
-    else:
-      logging.info("%s: No checkpoint found", self.name)
-
-  def Save(self, sess, global_step=None):
-    save_path = self.saver.save(sess, self.path, global_step=global_step)
-    logging.info("%s: Saved to %s", self.name, save_path)
+  def Inc(self, delta):
+    tf.get_default_session().run(self.inc, {self.val: delta})
 
 
 def main(unused_argv):
-  TRAIN_LENGTH = 20
-  PATH_TEST_INTERVAL = 1000
-  SUMMARY_INTERVAL = 10000
-  SAVE_INTERVAL = 10000
-  CHECKPOINT_FILE = 'model.ckpt'
-
   logging.basicConfig(level=logging.DEBUG if FLAGS.debug else logging.INFO,
       format='%(message)s')
 
-  port = FLAGS.port
-  if FLAGS.server:
-    server = subprocess.Popen([FLAGS.server, FLAGS.rom, str(port)])
-    time.sleep(1)
+  global_step = SavedVar('step', 0)
+  global_ac = ACNeuralNetwork('ac')
 
-  saved_step = SavedVar('step', 0)
-  saved_ep = SavedVar('ep', 0)
-
-  ac = ACNeuralNetwork('ac')
-  state = ac.InitialState()
-  experience = []
-  length = 0
-  rewards = 0
-
-  pdata = []
   pnn = PathNeuralNetwork('pnn')
-  p_test_cost = 0
-  p_train_cost = 0
 
-  action_summary = defaultdict(int)
+  workers = [
+      Worker(global_step, global_ac, pnn, i)
+      for i in xrange(FLAGS.num_workers)
+  ]
 
-  with tf.Session() as sess:
-    sess.run(tf.global_variables_initializer())
+  sv = tf.train.Supervisor(logdir=FLAGS.logdir,
+                           global_step=global_step.var,
+                           saver=tf.train.Saver(
+                               max_to_keep=1000,
+                               keep_checkpoint_every_n_hours=1,
+                               pad_step_number=True),
+                           save_model_secs=600,
+                           save_summaries_secs=60)
 
-    saver = SimpleSaver('saver', ac.Vars() + [saved_step.var],
-        FLAGS.checkpoint_dir, CHECKPOINT_FILE)
-    saver.Restore(sess)
+  with sv.managed_session() as sess, sess.as_default():
+    logging.info('ac: %s', format_list(global_ac.CheckSum()))
+    logging.info('pnn: %s', format_list(pnn.CheckSum()))
 
-    pnn_saver = SimpleSaver('pnn', pnn.Vars(), FLAGS.pnn_dir, CHECKPOINT_FILE)
-    pnn_saver.Restore(sess)
-
-    step = saved_step.Eval()
-    ep = saved_ep.Eval()
-
-    game = Game(port, pnn)
-    game.Start(step)
-    frame = game.Step('_')
+    for worker in workers:
+      worker.Start(sv, sess)
 
     while True:
-      # eval action
-      action, value, state, logits = ac.Eval(frame, state)
-      action = ACTION_NAMES[action.argmax()]
-      paths = frame.paths.values() if FLAGS.send_paths else []
+      time.sleep(1)
 
-      # take action
-      frame1 = game.Step(action, paths=paths)
-      step = game.seq()
 
-      experience.append((frame, frame1, value, state))
-      length += 1
-      rewards += frame1.reward
+class Worker(threading.Thread):
+  def __init__(self, global_step, global_ac, pnn, task_id):
+    threading.Thread.__init__(self, name='worker-'+str(task_id))
+    self.daemon = True
 
-      frame = frame1
+    self.global_step = global_step
+    self.pnn = pnn
+    self.task_id = task_id
+    self.ac = ACNeuralNetwork('ac_' + str(task_id), global_ac=global_ac)
 
-      logging.info(
-          "Step %d value: %7.3f action: %s reward: %5.2f ac: %s logits: %s" %
-          (step, value, frame.action, frame.reward, format_list(ac.CheckSum()),
-            format_list(logits, fmt='%7.3f')))
+  def Start(self, sv, sess):
+    self.sv = sv
+    self.sess = sess
+    self.start()
 
-      # pnn training
-      if FLAGS.train_paths:
-        if len(game.last_frames) >= 2*PATH_LEN:
-          pdata.extend(PathNeuralNetwork.EncodePathData(list(game.last_frames)))
+  def run(self):
+    port = FLAGS.port + self.task_id
+    if FLAGS.server:
+      server = subprocess.Popen([FLAGS.server, FLAGS.rom, str(port)])
 
-        if len(pdata) >= 1000:
-          EPOCHS = 2
-          p_train_cost = 0
-          n = 0
-          for e in xrange(EPOCHS):
-            logging.info('pnn train: epoch %d', e)
-            for i in xrange(0, len(pdata), MINI_BATCH_SIZE):
-              p_train_cost += pnn.Train(pdata[i: i+MINI_BATCH_SIZE])
-              n += 1
-          p_train_cost /= n
-          logging.info('pnn train: data size: %d cost: %s', len(pdata),
-              p_train_cost)
-          pdata = []
+    game = Game(port, self.pnn)
+    game.Start()
+    frame = game.Step('_')
 
-      # pnn testing
-      if step % PATH_TEST_INTERVAL == 0 and pdata:
-        p_test_cost, inputs, targets, outputs = pnn.Test(pdata[-5:])
+    ac = self.ac
+    state = ac.InitialState()
+    experience = []
+
+    train_pnn = FLAGS.train_pnn and self.task_id == 0
+    if train_pnn:
+      pdata = []
+      p_test_cost = 0
+      p_train_cost = 0
+
+    step = 0
+    action_summary = defaultdict(int)
+
+    sess = self.sess
+    with sess.as_default():
+      ac.Sync()
+
+      while not self.sv.should_stop():
+        # eval action
+        action, value, state, logits = ac.Eval(frame, state)
+        action = ACTION_NAMES[action.argmax()]
+        paths = frame.paths.values() if FLAGS.send_paths else []
+
+        # take action
+        frame1 = game.Step(action, paths=paths)
+        experience.append((frame, frame1, value, state))
+        frame = frame1
+
+        step += 1
         logging.info(
-            'pnn test: cost: %s\n '
-            'inputs:\n%s\n targets:\n%s\n outputs:\n%s\n delta:\n%s',
-            p_test_cost, inputs, targets, outputs, outputs - targets)
+            "Step %d value: %7.3f action: %s reward: %5.2f ac: %s logits: %s" %
+            (step, value, frame.action, frame.reward,
+              format_list(ac.CheckSum()), format_list(logits, fmt='%7.3f')))
 
-      # policy training
-      if len(experience) >= TRAIN_LENGTH or frame.terminal:
-        ac.Train(experience)
-        experience = []
+        # policy training
+        TRAIN_LENGTH = 20
+        if len(experience) >= TRAIN_LENGTH or frame.terminal:
+          ac.Sync()
+          ac.Train(experience)
+          self.global_step.Inc(len(experience))
+          experience = []
 
-      # reset on terminal
-      if frame.terminal:
-        logging.info('episode %d: length: %d rewards: %f', ep, length, rewards)
-        ep += 1
-        frame = game.Step('_')
-        state = ac.InitialState()
-        length = 0
-        rewards = 0
+        # pnn training
+        if train_pnn:
+          if len(game.last_frames) >= 2*PATH_LEN:
+            pdata.extend(PathNeuralNetwork.EncodePathData(
+              list(game.last_frames)))
 
-      # summary
-      action_summary[frame.action] += 1
-      if step % SUMMARY_INTERVAL == 0:
-        logging.info('actions %s', action_summary)
-        action_summary.clear()
+          # training
+          if len(pdata) >= 1000:
+            EPOCHS = 2
+            p_train_cost = 0
+            n = 0
+            for e in xrange(EPOCHS):
+              logging.info('pnn train: epoch %d', e)
+              for i in xrange(0, len(pdata), MINI_BATCH_SIZE):
+                p_train_cost += self.pnn.Train(pdata[i: i+MINI_BATCH_SIZE])
+                n += 1
+            p_train_cost /= n
+            logging.info('pnn train: data size: %d cost: %s', len(pdata),
+                p_train_cost)
+            pdata = []
 
-      # save models
-      if step % SAVE_INTERVAL == 0:
-        saved_step.Assign(sess, step)
-        saved_ep.Assign(sess, ep)
-        saver.Save(sess, global_step=step)
-        pnn_saver.Save(sess, global_step=step)
+          # testing
+          if step % 10000 == 0 and pdata:
+            p_test_cost, inputs, targets, outputs = self.pnn.Test(pdata[-5:])
+            logging.info(
+                'pnn test: cost: %s\n '
+                'inputs:\n%s\n targets:\n%s\n outputs:\n%s\n delta:\n%s',
+                p_test_cost, inputs, targets, outputs, outputs - targets)
+
+        # summary
+        action_summary[frame.action] += 1
+        if step % 10000 == 0:
+          logging.info('actions %s', action_summary)
+          action_summary.clear()
+
+        # reset on terminal
+        if frame.terminal:
+          logging.info('episode length: %d rewards: %f', game.length,
+              game.rewards)
+          frame = game.Step('_')
+          state = ac.InitialState()
 
 
 if __name__ == '__main__':
