@@ -538,13 +538,23 @@ class ACNeuralNetwork:
         self.loss = policy_loss + 0.5 * value_loss - 0.01 * entropy
 
         grads = tf.gradients(self.loss, self.var_list)
-        grads, _ = tf.clip_by_global_norm(grads, 40.0)
+        grads_clipped, _ = tf.clip_by_global_norm(grads, 40.0)
 
         self.optimizer = tf.train.AdamOptimizer(1e-4).apply_gradients(
-            zip(grads, global_ac.var_list))
+            zip(grads_clipped, global_ac.var_list))
 
         self.sync = tf.group(*[dst.assign(src)
           for dst, src in zip(self.var_list, global_ac.var_list)])
+
+        batch_size = tf.to_float(tf.shape(self.input)[0])
+        tf.summary.scalar("policy_loss", policy_loss / batch_size)
+        tf.summary.scalar("value_loss", value_loss / batch_size)
+        tf.summary.scalar("entropy", entropy / batch_size)
+        tf.summary.scalar("loss", self.loss / batch_size)
+        tf.summary.scalar("grad_global_norm", tf.global_norm(grads))
+        tf.summary.scalar("var_global_norm",
+            tf.global_norm(self.var_list))
+        self.summary_op = tf.summary.merge_all()
 
   def InitialState(self):
     return self.state_init
@@ -558,7 +568,7 @@ class ACNeuralNetwork:
         })
     return ret[0][0], ret[1][0], ret[2:4], ret[4][0]
 
-  def Train(self, experience):
+  def Train(self, experience, return_summary=False):
     GAMMA = 0.99
     LAMBDA = 1.0
 
@@ -575,7 +585,12 @@ class ACNeuralNetwork:
     advantages = discount(delta_t, GAMMA * LAMBDA)
     state = experience[0][3]
 
-    self.optimizer.run({
+    ops = []
+    if return_summary:
+      ops.append(self.summary_op)
+    ops.append(self.optimizer)
+
+    results = tf.get_default_session().run(ops, {
       self.input: inputs,
       self.actual_action: actions,
       self.advantage: advantages,
@@ -583,6 +598,9 @@ class ACNeuralNetwork:
       self.state_in[0]: state[0],
       self.state_in[1]: state[1],
     })
+
+    if return_summary:
+      return results[0]
 
   def Sync(self):
     tf.get_default_session().run(self.sync)
@@ -776,9 +794,10 @@ def main(unused_argv):
   global_step = SavedVar('step', 0)
   global_ac = ACNeuralNetwork('ac')
   pnn = PathNeuralNetwork('pnn')
+  summary_writer = tf.summary.FileWriter(os.path.join(FLAGS.logdir, 'summary'))
 
   workers = [
-      Worker(global_step, global_ac, pnn, i)
+      Worker(global_step, global_ac, pnn, summary_writer, i)
       for i in xrange(FLAGS.num_workers)]
 
   sv = tf.train.Supervisor(logdir=FLAGS.logdir,
@@ -787,7 +806,9 @@ def main(unused_argv):
                                max_to_keep=1000,
                                keep_checkpoint_every_n_hours=1,
                                pad_step_number=True),
-                           save_model_secs=60,
+                           summary_op=None,
+                           summary_writer=summary_writer,
+                           save_model_secs=600,
                            save_summaries_secs=60)
 
   with sv.managed_session() as sess, sess.as_default():
@@ -802,12 +823,13 @@ def main(unused_argv):
 
 
 class Worker(threading.Thread):
-  def __init__(self, global_step, global_ac, pnn, task_id):
+  def __init__(self, global_step, global_ac, pnn, summary_writer, task_id):
     threading.Thread.__init__(self, name='worker-'+str(task_id))
     self.daemon = True
 
     self.global_step = global_step
     self.pnn = pnn
+    self.summary_writer = summary_writer
     self.task_id = task_id
     self.ac = ACNeuralNetwork('ac_' + str(task_id), global_ac=global_ac)
 
@@ -818,6 +840,8 @@ class Worker(threading.Thread):
 
   def run(self):
     port = FLAGS.port + self.task_id
+    logging.info('starting worker %d at port %d', self.task_id, port)
+
     if FLAGS.server:
       server = subprocess.Popen([FLAGS.server, FLAGS.rom, str(port)])
 
@@ -837,6 +861,7 @@ class Worker(threading.Thread):
 
     lvl = logging.INFO if FLAGS.log_steps else logging.DEBUG
     step = 0
+    trainings = 0
     action_summary = defaultdict(int)
 
     sess = self.sess
@@ -863,10 +888,18 @@ class Worker(threading.Thread):
         # policy training
         TRAIN_LENGTH = 20
         if len(experience) >= TRAIN_LENGTH or frame.terminal:
+          trainings += 1
+          do_summary = self.task_id == 0 and trainings % 10 == 0
+
           ac.Sync()
-          ac.Train(experience)
+          summary = ac.Train(experience, return_summary=do_summary)
           self.global_step.Inc(len(experience))
           experience = []
+
+          if do_summary:
+            self.summary_writer.add_summary(
+                tf.Summary.FromString(summary),
+                self.global_step.Eval())
 
         # pnn training
         if train_pnn:
@@ -906,7 +939,7 @@ class Worker(threading.Thread):
         # reset on terminal
         if frame.terminal:
           logging.info(
-              'task: %d steps: %4d episode length: %4d rewards: %6.2f ac: %s',
+              'task: %d steps: %9d episode length: %4d rewards: %6.2f ac: %s',
               self.task_id, step, game.length, game.rewards,
               format_list(ac.CheckSum()))
           frame = game.Step('_')
