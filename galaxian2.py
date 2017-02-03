@@ -811,7 +811,9 @@ def main(unused_argv):
                            save_model_secs=600,
                            save_summaries_secs=60)
 
-  with sv.managed_session() as sess, sess.as_default():
+  config = tf.ConfigProto(intra_op_parallelism_threads=len(workers))
+
+  with sv.managed_session(config=config) as sess, sess.as_default():
     logging.info('ac: %s', format_list(global_ac.CheckSum()))
     logging.info('pnn: %s', format_list(pnn.CheckSum()))
 
