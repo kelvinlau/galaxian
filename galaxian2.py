@@ -33,6 +33,7 @@ flags = tf.app.flags
 FLAGS = flags.FLAGS
 
 flags.DEFINE_bool('debug', False, 'enable logging.debug')
+flags.DEFINE_bool('log_steps', False, 'log steps')
 flags.DEFINE_string('server', '', 'server binary')
 flags.DEFINE_string('rom', './galaxian.nes', 'galaxian nes rom file')
 flags.DEFINE_string('logdir', 'logs/2.28', 'Supervisor logdir')
@@ -517,35 +518,33 @@ class ACNeuralNetwork:
         self.b5 = var([OUTPUT_DIM])
         self.output = (tf.matmul(fc4, self.w5) + self.b5)
 
-    self.theta = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope=name)
-    assert len(self.theta) == (10 if RAW_IMAGE else 10), len(self.theta)
+      self.var_list = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES,
+          scope=name)
+      assert len(self.var_list) == (10 if RAW_IMAGE else 10), len(self.var_list)
 
-    if global_ac is not None:
-      self.actual_action = tf.placeholder(tf.float32, [None, OUTPUT_DIM],
-          name='actual_action')
-      self.advantage = tf.placeholder(tf.float32, [None], name='advantage')
-      self.r = tf.placeholder(tf.float32, [None], name='r')
+      if global_ac is not None:
+        self.actual_action = tf.placeholder(tf.float32, [None, OUTPUT_DIM],
+            name='actual_action')
+        self.advantage = tf.placeholder(tf.float32, [None], name='advantage')
+        self.r = tf.placeholder(tf.float32, [None], name='r')
 
-      log_prob = tf.nn.log_softmax(self.logits)
-      prob = tf.nn.softmax(self.logits)
+        log_prob = tf.nn.log_softmax(self.logits)
+        prob = tf.nn.softmax(self.logits)
 
-      policy_loss = -tf.reduce_sum(
-          tf.reduce_sum(log_prob * self.actual_action, [1]) * self.advantage)
-      value_loss = 0.5 * tf.reduce_sum(tf.square(self.value - self.r))
-      entropy = -tf.reduce_sum(prob * log_prob)
-      self.loss = policy_loss + 0.5 * value_loss - 0.01 * entropy
+        policy_loss = -tf.reduce_sum(
+            tf.reduce_sum(log_prob * self.actual_action, [1]) * self.advantage)
+        value_loss = 0.5 * tf.reduce_sum(tf.square(self.value - self.r))
+        entropy = -tf.reduce_sum(prob * log_prob)
+        self.loss = policy_loss + 0.5 * value_loss - 0.01 * entropy
 
-      grads = tf.gradients(self.loss, self.theta)
-      grads, _ = tf.clip_by_global_norm(grads, 40.0)
+        grads = tf.gradients(self.loss, self.var_list)
+        grads, _ = tf.clip_by_global_norm(grads, 40.0)
 
-      self.optimizer = tf.train.AdamOptimizer(1e-4).apply_gradients(
-          zip(grads, global_ac.theta))
+        self.optimizer = tf.train.AdamOptimizer(1e-4).apply_gradients(
+            zip(grads, global_ac.var_list))
 
-      self.sync = tf.group(
-          *[dst.assign(src) for dst, src in zip(self.theta, global_ac.theta)])
-
-  def Vars(self):
-    return self.theta
+        self.sync = tf.group(*[dst.assign(src)
+          for dst, src in zip(self.var_list, global_ac.var_list)])
 
   def InitialState(self):
     return self.state_init
@@ -589,7 +588,7 @@ class ACNeuralNetwork:
     tf.get_default_session().run(self.sync)
 
   def CheckSum(self):
-    return [np.sum(var.eval()) for var in self.Vars()]
+    return [np.sum(var.eval()) for var in self.var_list]
 
 
 class PathNeuralNetwork:
@@ -622,11 +621,9 @@ class PathNeuralNetwork:
       self.optimizer = tf.train.AdamOptimizer(
           learning_rate=5e-3, epsilon=1e-2).minimize(self.cost)
 
-    self.theta = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope=name)
-    assert len(self.theta) == 6, len(self.theta)
-
-  def Vars(self):
-    return self.theta
+    self.var_list = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES,
+        scope=name)
+    assert len(self.var_list) == 6, len(self.var_list)
 
   def Eval(self, inputs):
     if not inputs:
@@ -748,7 +745,7 @@ class PathNeuralNetwork:
     return cost, inputs, targets, outputs
 
   def CheckSum(self):
-    return [np.sum(var.eval()) for var in self.Vars()]
+    return [np.sum(var.eval()) for var in self.var_list]
 
 
 def format_list(l, fmt='%6.2f'):
@@ -772,27 +769,64 @@ class SavedVar:
     tf.get_default_session().run(self.inc, {self.val: delta})
 
 
+class SimpleSaver:
+  def __init__(self, name, var_list, model_dir, filename='model.ckpt'):
+    self.name = name
+    self.model_dir = model_dir
+    self.path = os.path.join(model_dir, filename)
+    self.saver = tf.train.Saver(var_list, max_to_keep=1000,
+        keep_checkpoint_every_n_hours=1, pad_step_number=True)
+    if not os.path.exists(model_dir):
+      os.makedirs(model_dir)
+
+  def Restore(self, sess):
+    ckpt = tf.train.get_checkpoint_state(self.model_dir)
+    assert ckpt and ckpt.model_checkpoint_path
+    self.saver.restore(sess, ckpt.model_checkpoint_path)
+    logging.info("%s: Restored from %s", self.name,
+        ckpt.model_checkpoint_path)
+
+  def Save(self, sess, global_step=None):
+    save_path = self.saver.save(sess, self.path, global_step=global_step)
+    logging.info("%s: Saved to %s", self.name, save_path)
+
+
 def main(unused_argv):
   logging.basicConfig(level=logging.DEBUG if FLAGS.debug else logging.INFO,
       format='%(message)s')
 
   global_step = SavedVar('step', 0)
   global_ac = ACNeuralNetwork('ac')
-
   pnn = PathNeuralNetwork('pnn')
+
+  #savable_vars = [global_step.var] + global_ac.var_list + pnn.var_list
+  #assert len(savable_vars) == 17, len(savable_vars)
 
   workers = [
       Worker(global_step, global_ac, pnn, i)
-      for i in xrange(FLAGS.num_workers)
-  ]
+      for i in xrange(FLAGS.num_workers)]
+
+  saver = SimpleSaver('ac', [global_step.var] + global_ac.var_list,
+      'models/2.28')
+  pnn_saver = SimpleSaver('pnn', pnn.var_list, 'models/pnn10')
+  def init_fn(sess):
+    saver.Restore(sess)
+    pnn_saver.Restore(sess)
 
   sv = tf.train.Supervisor(logdir=FLAGS.logdir,
                            global_step=global_step.var,
                            saver=tf.train.Saver(
+                               #var_list=savable_vars,
                                max_to_keep=1000,
                                keep_checkpoint_every_n_hours=1,
                                pad_step_number=True),
-                           save_model_secs=600,
+                           init_fn=init_fn,
+                           #init_op=tf.variables_initializer(savable_vars),
+                           #ready_op=
+                           #    tf.report_uninitialized_variables(savable_vars),
+                           #init_fn=lambda sess:
+                           #    sess.run(tf.global_variables_initializer()),
+                           save_model_secs=60,
                            save_summaries_secs=60)
 
   with sv.managed_session() as sess, sess.as_default():
@@ -802,7 +836,7 @@ def main(unused_argv):
     for worker in workers:
       worker.Start(sv, sess)
 
-    while True:
+    while any(w.is_alive() for w in workers):
       time.sleep(1)
 
 
@@ -840,6 +874,7 @@ class Worker(threading.Thread):
       p_test_cost = 0
       p_train_cost = 0
 
+    lvl = logging.INFO if FLAGS.log_steps else logging.DEBUG
     step = 0
     action_summary = defaultdict(int)
 
@@ -859,10 +894,10 @@ class Worker(threading.Thread):
         frame = frame1
 
         step += 1
-        logging.info(
-            "Step %d value: %7.3f action: %s reward: %5.2f ac: %s logits: %s" %
-            (step, value, frame.action, frame.reward,
-              format_list(ac.CheckSum()), format_list(logits, fmt='%7.3f')))
+        logging.log(lvl,
+            "Step %d value: %7.3f logits: %s action: %s reward: %5.2f",
+            step, value, format_list(logits, fmt='%7.3f'), frame.action,
+            frame.reward)
 
         # policy training
         TRAIN_LENGTH = 20
@@ -909,8 +944,10 @@ class Worker(threading.Thread):
 
         # reset on terminal
         if frame.terminal:
-          logging.info('episode length: %d rewards: %f', game.length,
-              game.rewards)
+          logging.info(
+              'task: %d steps: %4d episode length: %4d rewards: %6.2f ac: %s',
+              self.task_id, step, game.length, game.rewards,
+              format_list(ac.CheckSum()))
           frame = game.Step('_')
           state = ac.InitialState()
 
