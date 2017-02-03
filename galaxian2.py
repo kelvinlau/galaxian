@@ -769,28 +769,6 @@ class SavedVar:
     tf.get_default_session().run(self.inc, {self.val: delta})
 
 
-class SimpleSaver:
-  def __init__(self, name, var_list, model_dir, filename='model.ckpt'):
-    self.name = name
-    self.model_dir = model_dir
-    self.path = os.path.join(model_dir, filename)
-    self.saver = tf.train.Saver(var_list, max_to_keep=1000,
-        keep_checkpoint_every_n_hours=1, pad_step_number=True)
-    if not os.path.exists(model_dir):
-      os.makedirs(model_dir)
-
-  def Restore(self, sess):
-    ckpt = tf.train.get_checkpoint_state(self.model_dir)
-    assert ckpt and ckpt.model_checkpoint_path
-    self.saver.restore(sess, ckpt.model_checkpoint_path)
-    logging.info("%s: Restored from %s", self.name,
-        ckpt.model_checkpoint_path)
-
-  def Save(self, sess, global_step=None):
-    save_path = self.saver.save(sess, self.path, global_step=global_step)
-    logging.info("%s: Saved to %s", self.name, save_path)
-
-
 def main(unused_argv):
   logging.basicConfig(level=logging.DEBUG if FLAGS.debug else logging.INFO,
       format='%(message)s')
@@ -799,33 +777,16 @@ def main(unused_argv):
   global_ac = ACNeuralNetwork('ac')
   pnn = PathNeuralNetwork('pnn')
 
-  #savable_vars = [global_step.var] + global_ac.var_list + pnn.var_list
-  #assert len(savable_vars) == 17, len(savable_vars)
-
   workers = [
       Worker(global_step, global_ac, pnn, i)
       for i in xrange(FLAGS.num_workers)]
 
-  saver = SimpleSaver('ac', [global_step.var] + global_ac.var_list,
-      'models/2.28')
-  pnn_saver = SimpleSaver('pnn', pnn.var_list, 'models/pnn10')
-  def init_fn(sess):
-    saver.Restore(sess)
-    pnn_saver.Restore(sess)
-
   sv = tf.train.Supervisor(logdir=FLAGS.logdir,
                            global_step=global_step.var,
                            saver=tf.train.Saver(
-                               #var_list=savable_vars,
                                max_to_keep=1000,
                                keep_checkpoint_every_n_hours=1,
                                pad_step_number=True),
-                           init_fn=init_fn,
-                           #init_op=tf.variables_initializer(savable_vars),
-                           #ready_op=
-                           #    tf.report_uninitialized_variables(savable_vars),
-                           #init_fn=lambda sess:
-                           #    sess.run(tf.global_variables_initializer()),
                            save_model_secs=60,
                            save_summaries_secs=60)
 
