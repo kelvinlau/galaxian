@@ -4,16 +4,17 @@ Ref:
 https://storage.googleapis.com/deepmind-media/dqn/DQNNaturePaper.pdf
 https://www.nervanasys.com/demystifying-deep-reinforcement-learning/
 https://medium.com/@awjuliani/simple-reinforcement-learning-with-tensorflow-part-4-deep-q-networks-and-beyond-8438a3e2b8df#.tithx7juq
+https://github.com/openai/universe-starter-agent/
 
 TODO: Add var names.
 TODO: Raw image as input.
 TODO: Save png to verify input data.
+TODO: 4 frames per step.
 TODO: Dropout/Bayesian.
 TODO: Model based, Dyna, Sarsa, TD search, Monte Carlo.
 """
 
 from __future__ import print_function
-from collections import defaultdict
 from collections import deque
 import os
 import random
@@ -547,14 +548,16 @@ class ACNeuralNetwork:
           for dst, src in zip(self.var_list, global_ac.var_list)])
 
         batch_size = tf.to_float(tf.shape(self.input)[0])
-        tf.summary.scalar("policy_loss", policy_loss / batch_size)
-        tf.summary.scalar("value_loss", value_loss / batch_size)
-        tf.summary.scalar("entropy", entropy / batch_size)
-        tf.summary.scalar("loss", self.loss / batch_size)
-        tf.summary.scalar("grad_global_norm", tf.global_norm(grads))
-        tf.summary.scalar("var_global_norm",
-            tf.global_norm(self.var_list))
-        self.summary_op = tf.summary.merge_all()
+        summaries = [
+          tf.summary.scalar("policy_loss", policy_loss / batch_size),
+          tf.summary.scalar("value_loss", value_loss / batch_size),
+          tf.summary.scalar("entropy", entropy / batch_size),
+          tf.summary.scalar("loss", self.loss / batch_size),
+          tf.summary.scalar("grad_global_norm", tf.global_norm(grads)),
+          tf.summary.scalar("var_global_norm",
+              tf.global_norm(self.var_list)),
+        ]
+        self.summary_op = tf.summary.merge(summaries)
 
   def InitialState(self):
     return self.state_init
@@ -864,7 +867,7 @@ class Worker(threading.Thread):
     lvl = logging.INFO if FLAGS.log_steps else logging.DEBUG
     step = 0
     trainings = 0
-    action_summary = defaultdict(int)
+    action_summary = [0] * OUTPUT_DIM
 
     sess = self.sess
     with sess.as_default():
@@ -933,17 +936,25 @@ class Worker(threading.Thread):
                 p_test_cost, inputs, targets, outputs, outputs - targets)
 
         # summary
-        action_summary[frame.action] += 1
+        action_summary[frame.action_id] += 1
         if step % 10000 == 0:
-          logging.info('actions %s', action_summary)
-          action_summary.clear()
+          logging.info('actions: %s', action_summary)
+          action_summary = [0] * OUTPUT_DIM
 
         # reset on terminal
         if frame.terminal:
           logging.info(
               'task: %d steps: %9d episode length: %4d rewards: %6.2f ac: %s',
               self.task_id, step, game.length, game.rewards,
+
               format_list(ac.CheckSum()))
+
+          summary = tf.Summary()
+          summary.value.add(
+              tag='game/rewards', simple_value=float(game.rewards))
+          summary.value.add(tag='game/length', simple_value=float(game.length))
+          self.summary_writer.add_summary(summary, self.global_step.Eval())
+
           frame = game.Step('_')
           state = ac.InitialState()
 
