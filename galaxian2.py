@@ -5,7 +5,7 @@ https://storage.googleapis.com/deepmind-media/dqn/DQNNaturePaper.pdf
 https://www.nervanasys.com/demystifying-deep-reinforcement-learning/
 https://medium.com/@awjuliani/simple-reinforcement-learning-with-tensorflow-part-4-deep-q-networks-and-beyond-8438a3e2b8df#.tithx7juq
 
-TODO: Add var names.
+TODO: Add var names, print shapes.
 TODO: Raw image as input.
 TODO: Save png to verify input data.
 TODO: Dropout/Bayesian.
@@ -37,7 +37,7 @@ flags.DEFINE_bool('log_steps', False, 'log steps')
 flags.DEFINE_string('server', '', 'server binary')
 flags.DEFINE_string('rom', './galaxian.nes', 'galaxian nes rom file')
 flags.DEFINE_string('logdir', 'logs/2.28', 'Supervisor logdir')
-flags.DEFINE_integer('port', 62343, 'server port to conenct')
+flags.DEFINE_integer('port', 5001, 'server port to conenct')
 flags.DEFINE_integer('num_workers', 1, 'num servers')
 flags.DEFINE_bool('train_pnn', False, 'train pnn')
 flags.DEFINE_bool('send_paths', False, 'send path to render by lua server')
@@ -439,7 +439,6 @@ class ACNeuralNetwork:
       if not RAW_IMAGE:
         # Input.
         self.input = tf.placeholder(tf.float32, [None, INPUT_DIM], name='input')
-        logging.info('input: %s', self.input.get_shape())
         x = self.input
 
         N1 = 64
@@ -463,9 +462,6 @@ class ACNeuralNetwork:
             lstm, x, initial_state=tf.nn.rnn_cell.LSTMStateTuple(c_in, h_in),
             sequence_length=tf.shape(self.input)[:1])
         lstm_c, lstm_h = lstm_state
-        logging.info('lstm_outputs: %s', lstm_outputs.get_shape())
-        logging.info('lstm_c: %s', lstm_c.get_shape())
-        logging.info('lstm_h: %s', lstm_h.get_shape())
         self.state_out = [lstm_c, lstm_h]
 
         x = tf.reshape(lstm_outputs, [-1, LSTM_SIZE])
@@ -479,7 +475,6 @@ class ACNeuralNetwork:
         # Input image.
         self.input = tf.placeholder(tf.float32,
             [None, SIDE, SIDE, NUM_SNAPSHOTS])
-        logging.info('input: %s', self.input.get_shape())
 
         # Conv 1.
         self.w1 = var([8, 8, NUM_SNAPSHOTS, 32])
@@ -487,7 +482,6 @@ class ACNeuralNetwork:
         conv1 = tf.nn.relu(tf.nn.conv2d(
           self.input, self.w1, strides = [1, 4, 4, 1], padding = "VALID")
           + self.b1)
-        logging.info('conv1: %s', conv1.get_shape())
 
         # Conv 2.
         self.w2 = var([4, 4, 32, 64])
@@ -495,7 +489,6 @@ class ACNeuralNetwork:
         conv2 = tf.nn.relu(tf.nn.conv2d(
           conv1, self.w2, strides = [1, 2, 2, 1], padding = "VALID")
           + self.b2)
-        logging.info('conv2: %s', conv2.get_shape())
 
         # Conv 3.
         self.w3 = var([3, 3, 64, 64])
@@ -503,7 +496,6 @@ class ACNeuralNetwork:
         conv3 = tf.nn.relu(tf.nn.conv2d(
           conv2, self.w3, strides = [1, 1, 1, 1], padding = "VALID")
           + self.b3)
-        logging.info('conv3: %s', conv3.get_shape())
 
         # Flatten conv 3.
         conv3_flat = tf.reshape(conv3, [-1, 3136])
@@ -625,10 +617,7 @@ class PathNeuralNetwork:
           output_keep_prob=self.keep_prob)
       lstm = tf.nn.rnn_cell.MultiRNNCell([lstm0, lstm1],
           state_is_tuple=True)
-      logging.info('lstm.state_size: %s', lstm.state_size)
-      logging.info('lstm.output_size: %s', lstm.output_size)
       rnn_out, state = tf.nn.dynamic_rnn(lstm, self.input, dtype=tf.float32)
-      logging.info('rnn_out: %s', rnn_out.get_shape())
       rnn_out = tf.transpose(rnn_out, [1, 0, 2])
       rnn_out = rnn_out[-1]
       self.output = tf.matmul(rnn_out, var([LSTM_SIZE, OUTPUT_SIZE])) \
@@ -941,9 +930,8 @@ class Worker(threading.Thread):
         # reset on terminal
         if frame.terminal:
           logging.info(
-              'task: %d steps: %9d episode length: %4d rewards: %6.2f ac: %s',
-              self.task_id, step, game.length, game.rewards,
-              format_list(ac.CheckSum()))
+              'task: %d steps: %9d episode length: %4d rewards: %6.2f',
+              self.task_id, step, game.length, game.rewards)
           frame = game.Step('_')
           state = ac.InitialState()
 

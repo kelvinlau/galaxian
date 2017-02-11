@@ -210,7 +210,7 @@ handles[dialogs]:show();
 
 -- Socket.
 local socket = require("socket")
-local server = assert(socket.bind("*", 62343))
+local server = assert(socket.bind("*", 5001))
 local ip, port = server:getsockname()
 emu.print("localhost:" .. port)
 emu.message("localhost:" .. port)
