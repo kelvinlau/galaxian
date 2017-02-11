@@ -798,7 +798,7 @@ def main(unused_argv):
 
   workers = [
       Worker(global_step, global_ac, pnn, summary_writer, i)
-      for i in xrange(FLAGS.num_workers)]
+      for i in xrange(16)]
 
   sv = tf.train.Supervisor(logdir=FLAGS.logdir,
                            global_step=global_step.var,
@@ -817,7 +817,7 @@ def main(unused_argv):
     logging.info('ac: %s', format_list(global_ac.CheckSum()))
     logging.info('pnn: %s', format_list(pnn.CheckSum()))
 
-    for worker in workers:
+    for worker in workers[:FLAGS.num_workers]:
       worker.Start(sv, sess)
 
     while any(w.is_alive() for w in workers):
