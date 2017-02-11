@@ -789,12 +789,6 @@ def main(unused_argv):
       Worker(global_step, global_ac, pnn, summary_writer, i)
       for i in xrange(16)]
 
-  saver = tf.train.Saver([global_step.var] + global_ac.var_list + pnn.var_list)
-  def init_fn(sess):
-    ckpt = tf.train.get_checkpoint_state('logs/2.28x')
-    assert ckpt and ckpt.model_checkpoint_path
-    saver.restore(sess, ckpt.model_checkpoint_path)
-
   sv = tf.train.Supervisor(logdir=FLAGS.logdir,
                            global_step=global_step.var,
                            saver=tf.train.Saver(
@@ -803,8 +797,7 @@ def main(unused_argv):
                                pad_step_number=True),
                            summary_op=None,
                            summary_writer=summary_writer,
-                           init_fn=init_fn,
-                           save_model_secs=60,
+                           save_model_secs=600,
                            save_summaries_secs=60)
 
   config = tf.ConfigProto(intra_op_parallelism_threads=len(workers))
