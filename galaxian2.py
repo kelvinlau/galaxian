@@ -34,7 +34,8 @@ FLAGS = flags.FLAGS
 
 flags.DEFINE_bool('debug', False, 'enable logging.debug')
 flags.DEFINE_bool('log_steps', False, 'log steps')
-flags.DEFINE_string('server', '', 'server binary')
+flags.DEFINE_string('server_tasks', '', 'tasks to start servers')
+flags.DEFINE_string('server', './server', 'server binary')
 flags.DEFINE_string('rom', './galaxian.nes', 'galaxian nes rom file')
 flags.DEFINE_string('logdir', 'logs/2.28', 'Supervisor logdir')
 flags.DEFINE_integer('port', 5001, 'server port to conenct')
@@ -759,6 +760,19 @@ def format_list(l, fmt='%6.2f'):
   return '[' + ' '.join([fmt % x for x in l]) + ']'
 
 
+def parse_ints(s):
+  if not s:
+    return []
+  ret = []
+  for t in s.split(','):
+    if '-' in t:
+      a, b = map(int, t.split('-'))
+    else:
+      a = b = int(t)
+    ret += range(a, b+1)
+  return ret
+
+
 class SavedVar:
   def __init__(self, name, init_val):
     self.var = tf.Variable(init_val, trainable=False, name=name)
@@ -785,8 +799,9 @@ def main(unused_argv):
   pnn = PathNeuralNetwork('pnn')
   summary_writer = tf.summary.FileWriter(os.path.join(FLAGS.logdir, 'summary'))
 
+  server_tasks = parse_ints(FLAGS.server_tasks)
   workers = [
-      Worker(global_step, global_ac, pnn, summary_writer, i)
+      Worker(global_step, global_ac, pnn, summary_writer, i, i in server_tasks)
       for i in xrange(16)]
 
   sv = tf.train.Supervisor(logdir=FLAGS.logdir,
@@ -814,7 +829,8 @@ def main(unused_argv):
 
 
 class Worker(threading.Thread):
-  def __init__(self, global_step, global_ac, pnn, summary_writer, task_id):
+  def __init__(self, global_step, global_ac, pnn, summary_writer, task_id,
+               start_server):
     threading.Thread.__init__(self, name='worker-'+str(task_id))
     self.daemon = True
 
@@ -822,6 +838,7 @@ class Worker(threading.Thread):
     self.pnn = pnn
     self.summary_writer = summary_writer
     self.task_id = task_id
+    self.start_server = start_server
     self.ac = ACNeuralNetwork('ac_' + str(task_id), global_ac=global_ac)
 
   def Start(self, sv, sess):
@@ -833,8 +850,11 @@ class Worker(threading.Thread):
     port = FLAGS.port + self.task_id
     logging.info('starting worker %d at port %d', self.task_id, port)
 
-    if FLAGS.server:
-      server = subprocess.Popen([FLAGS.server, FLAGS.rom, str(port)])
+    if self.start_server:
+      server = subprocess.Popen([FLAGS.server, FLAGS.rom, str(port)],
+              stdout=open('/tmp/galaxian-{}.stdout'.format(self.task_id), 'w'),
+              stderr=open('/tmp/galaxian-{}.stderr'.format(self.task_id), 'w'))
+      time.sleep(5)
 
     game = Game(port, self.pnn)
     game.Start()
