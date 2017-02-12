@@ -4,16 +4,20 @@ Ref:
 https://storage.googleapis.com/deepmind-media/dqn/DQNNaturePaper.pdf
 https://www.nervanasys.com/demystifying-deep-reinforcement-learning/
 https://medium.com/@awjuliani/simple-reinforcement-learning-with-tensorflow-part-4-deep-q-networks-and-beyond-8438a3e2b8df#.tithx7juq
+https://github.com/openai/universe-starter-agent/
 
 TODO: Add var names, print shapes.
+TODO: ac-0.
+TODO: No artificial rewards.
 TODO: Raw image as input.
 TODO: Save png to verify input data.
 TODO: Dropout/Bayesian.
 TODO: Model based, Dyna, Sarsa, TD search, Monte Carlo.
+TODO: Fix A holding.
+TODO: Tree trimming.
 """
 
 from __future__ import print_function
-from collections import defaultdict
 from collections import deque
 import os
 import random
@@ -23,6 +27,7 @@ import socket
 import subprocess
 import logging
 import threading
+import copy
 #import cv2
 import scipy.signal
 import numpy as np
@@ -56,9 +61,9 @@ if RAW_IMAGE:
   SIDE = 84
 else:
   DX = 4
-  WIDTH = 256 / DX
+  HMAP_WIDTH = 256 / DX
   FOCUS = 16
-  INPUT_DIM = 3 + (2*FOCUS+3) + NUM_INCOMING_ENEMIES*5 + 2*WIDTH
+  INPUT_DIM = 3 + (2*FOCUS+3) + NUM_INCOMING_ENEMIES*5 + 2*HMAP_WIDTH
 PATH_LEN = 12
 ACTION_NAMES = ['_', 'L', 'R', 'A', 'l', 'r']
 ACTION_ID = {ACTION_NAMES[i]: i for i in xrange(len(ACTION_NAMES))}
@@ -79,10 +84,17 @@ class Timer:
     print(self.name, self.interval, self.start, self.end)
 
 
+def rehash(x, y):
+  return (x*13 + y) % (2**64)
+
+
 class Point:
   def __init__(self, x, y):
     self.x = x
     self.y = y
+
+  def __hash__(self):
+    return rehash(hash(self.x), hash(self.y))
 
 
 def one_hot(n, i):
@@ -161,12 +173,31 @@ class Frame:
       self.masks.append(self.NextInt())
     self.masks = self.masks[:NUM_STILL_ENEMIES]
 
+    self.still_enemies = []
+    for i, mask in enumerate(self.masks):
+      x = self.sdx + 16 * i
+      y = 108
+      while mask:
+        if mask % 2:
+          self.still_enemies.append(Point(x, y))
+        mask /= 2
+        y -= 12
+    assert len(self.still_enemies) <= 48, len(self.still_enemies)
+
     self.incoming_enemies = {}
     for i in xrange(self.NextInt()):
       eid = self.NextInt()
       e = self.NextPoint()
       e.row = self.NextInt()
       self.incoming_enemies[eid] = e
+    self.dead = {}
+    if prev_frames:
+      pf = prev_frames[-1]
+      for eid, e in self.incoming_enemies.items():
+        pe = pf.incoming_enemies.get(eid)
+        if pe is not None and pe.x == e.x and pe.y == e.y or eid in pf.dead:
+          del self.incoming_enemies[eid]
+          self.dead[eid] = 1
 
     self.bullets = {}
     for i in xrange(self.NextInt()):
@@ -204,13 +235,15 @@ class Frame:
       svx = 0
       if prev_frames:
         svx = sign(self.sdx - prev_frames[-1].sdx)
+      self.svx = svx
       self.data += smap
       self.data.append(sl)
       self.data.append(sr)
       self.data.append(svx)
       logging.debug('smap [%s] %s %s %s', hmap_string(smap), sl, sr, svx)
 
-      # incoming enemy x, y relative to galaxian, and enemy type.
+      # incoming enemies: dx, dy, type.
+      # TODO: index by eid?
       ies = []
       for eid, e in sorted(
           self.incoming_enemies.items(), key = lambda p: p[1].y):
@@ -224,51 +257,56 @@ class Frame:
 
       # hit map
       def ix(x):
-        return max(0, min(WIDTH-1, (int(round(x))-galaxian.x+128)/DX))
+        return max(0, min(HMAP_WIDTH-1, (int(round(x))-galaxian.x+128)/DX))
       # out-of-bound tiles have penality.
-      imap = [0. if ix(0) <= i <= ix(255) else 1. for i in range(WIDTH)]
+      imap = [0. if ix(0) <= i <= ix(255) else 1. for i in range(HMAP_WIDTH)]
       bmap = imap[:]
 
+      # incoming enemy paths
       self.paths = {}
-      if prev_frames:
-        y1 = galaxian.y-8
-        y2 = galaxian.y+8
+      y1 = galaxian.y-8
+      y2 = galaxian.y+8
+      pins_map = PathNeuralNetwork.EncodePathInputs(list(prev_frames)+[self])
+      pouts = pnn.Eval(pins_map.values())
+      self.paths = PathNeuralNetwork.DecodePathOutputs(
+          pouts, pins_map.keys(), self.incoming_enemies)
+      for eid, e in self.incoming_enemies.iteritems():
+        path = self.paths.get(eid)
+        if path is None: continue
+        for t, p in enumerate(path):
+          if y1 <= p.y <= y2:
+            imap[ix(p.x)] += max(0., 1-t/24.)
 
-        # incoming enemy paths
-        pins_map = PathNeuralNetwork.EncodePathInputs(list(prev_frames)+[self])
-        pouts = pnn.Eval(pins_map.values())
-        self.paths = PathNeuralNetwork.DecodePathOutputs(
-            pouts, pins_map.keys(), self.incoming_enemies)
-        for eid, e in self.incoming_enemies.iteritems():
-          path = self.paths.get(eid)
-          if path is None: continue
-          for t, p in enumerate(path):
-            if y1 <= p.y <= y2:
-              imap[ix(p.x)] += max(0., 1-t/24.)
+      # bullets
+      self.bv = {}
+      for eid, e in self.bullets.iteritems():
+        pe = None  # the furthest frame having this bullet
+        steps = 0
+        for pf in reversed(prev_frames):
+          if eid in pf.bullets:
+            pe = pf.bullets[eid]
+            steps += 1
+          else:
+            break
+        x1, x2, t = None, None, None
+        if pe and pe.y < e.y < y1:
+          x1 = int(round((e.x-pe.x)*1.0/(e.y-pe.y)*(y1-pe.y)+pe.x))
+          x2 = int(round((e.x-pe.x)*1.0/(e.y-pe.y)*(y2-pe.y)+pe.x))
+          if x1 > x2:
+            x1, x2 = x2, x1
+          t = (y1-e.y)*1.0/(e.y-pe.y)*steps
+        elif y1 <= e.y <= y2:
+          x1 = x2 = e.x
+          t = 0
+        if x1 is not None:
+          hit = max(0., 1.-t/12.)
+          for i in xrange(ix(x1), ix(x2)+1):
+            bmap[i] += hit
+        if pe:
+          self.bv[eid] = Point((e.x-pe.x)/steps, (e.y-pe.y)/steps)
+        else:
+          self.bv[eid] = Point(0, 1)
 
-        # bullets
-        for eid, e in self.bullets.iteritems():
-          pe = None  # the furthest frame having this bullet
-          steps = len(prev_frames)
-          for pf in prev_frames:
-            if eid in pf.bullets:
-              pe = pf.bullets[eid]
-              steps -= 1
-              break
-          x1, x2, t = None, None, None
-          if pe and pe.y < e.y < y1:
-            x1 = int(round((e.x-pe.x)*1.0/(e.y-pe.y)*(y1-pe.y)+pe.x))
-            x2 = int(round((e.x-pe.x)*1.0/(e.y-pe.y)*(y2-pe.y)+pe.x))
-            if x1 > x2:
-              x1, x2 = x2, x1
-            t = (y1-e.y)*1.0/(e.y-pe.y)*steps
-          elif y1 <= e.y <= y2:
-            x1 = x2 = e.x
-            t = 0
-          if x1 is not None:
-            hit = max(0., 1.-t/12.)
-            for i in xrange(ix(x1), ix(x2)+1):
-              bmap[i] += hit
       self.data += imap
       self.data += bmap
       logging.debug('imap [%s]', hmap_string(imap))
@@ -288,17 +326,7 @@ class Frame:
       if self.missile.y < 200:
         self.AddRect(self.missile, 4, 8, .5)
 
-      still_enemies = []
-      for mask in self.masks:
-        x = self.sdx + 16 * i
-        y = 108
-        while mask:
-          if mask % 2:
-            still_enemies.append(Point(x, y))
-          mask /= 2
-          y -= 12
-      assert len(still_enemies) <= 46
-      for e in still_enemies:
+      for e in self.still_enemies:
         self.AddRect(e, 8, 12)
 
       for e in self.incoming_enemies.values():
@@ -350,6 +378,48 @@ class Frame:
     return np.sum(self.data)
 
 
+def is_dangerous(frame):
+  for e in frame.incoming_enemies.values():
+    if e.y > 150:
+      return True
+  for b in frame.bullets.values():
+    if b.y > 150:
+      return True
+  return False
+
+
+def dangerous_obj(frame):
+  d = None
+  for e in frame.incoming_enemies.values() + frame.bullets.values():
+    if d is None or e.y > d.y:
+      d = e
+  return d
+
+
+class SFrame:
+  def __init__(self, src):
+    assert isinstance(src, Frame)
+    self.galaxian = src.galaxian
+    self.missile = src.missile
+    self.still_enemies = src.still_enemies
+    self.incoming_enemies = src.incoming_enemies
+    self.bullets = src.bullets
+    self.seq = src.seq
+    self.rewards = 0
+
+  def __hash__(self):
+    h = hash(self.seq)
+    h = rehash(h, hash(self.galaxian.x))
+    h = rehash(h, hash(self.missile))
+    for eid in self.incoming_enemies:
+      h = rehash(h, hash(eid))
+    return h
+
+
+def collide(a, b, w):
+  return abs(a.x - b.x) <= w and abs(a.y - b.y) <= w
+
+
 class Game:
   def __init__(self, port, pnn):
     self._sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -395,6 +465,86 @@ class Game:
     self.rewards += frame.reward
 
     return frame
+
+  def Simulate(self, s, action, decay):
+    FRAME_SKIP = 5
+    WIDTH = 256
+
+    frame = self.last_frames[-1]
+    dep = s.seq - frame.seq
+
+    t = copy.deepcopy(s)
+    t.seq += 1
+
+    # still enemies' speed is 1/5.
+    for e in t.still_enemies:
+      e.x += frame.svx * 1
+
+    fired = 0
+    for i in xrange(1, FRAME_SKIP+1):
+      if action in ['L', 'l']:
+        t.galaxian.x = max(t.galaxian.x - 1, 22)
+      elif action in ['R', 'r']:
+        t.galaxian.x = min(t.galaxian.x + 1, WIDTH-22)
+
+      if t.missile.y < 200 or fired:
+        t.missile.y -= 4
+        if t.missile.y < 0:
+          t.missile.y = 200
+        fired = 0
+      elif action in ['A', 'l', 'r'] and i == 1:
+        fired = 1
+
+      if t.missile.y >= 200:
+        t.missile.x = t.galaxian.x
+
+      for eid, e in t.bullets.iteritems():
+        se = s.bullets[eid]
+        v = frame.bv[eid]
+        e.x = int(round(se.x + v.x * i / FRAME_SKIP))
+        e.y = int(round(se.y + v.y * i / FRAME_SKIP))
+
+      for eid, e in t.incoming_enemies.iteritems():
+        se = s.incoming_enemies[eid]
+        path = frame.paths.get(eid)
+        if path:
+          te = path[dep]
+        else:
+          te = se
+        e.x = int(round(se.x + (te.x - se.x) * i / FRAME_SKIP))
+        e.y = int(round(se.y + (te.y - se.y) * i / FRAME_SKIP))
+
+      for b in t.bullets.values():
+        if collide(b, t.galaxian, 8):
+          t.rewards = -100 * decay
+          return t
+
+      for e in t.incoming_enemies.values():
+        if collide(e, t.galaxian, 12):
+          t.rewards = -100 * decay
+          return t
+      
+      if t.missile.y < 200:
+        hits = 0
+        if t.missile < 112:
+          num_still_enemies = len(t.still_enemies)
+          t.still_enemies = filter(lambda e: not collide(e, t.missile, 4),
+              t.still_enemies)
+          hits += num_still_enemies - len(t.still_enemies)
+          if hits:
+            t.rewards += 1 * hits * decay
+        
+        for eid, e in t.incoming_enemies.items():
+          if collide(e, t.missile, 4):
+            t.rewards += (enemy_type(e.row) + 2) * decay
+            del t.incoming_enemies[eid]
+            hits += 1
+
+        if hits:
+          t.missile.y = 200
+          t.missile.x = t.galaxian.x
+
+    return t
 
   def seq(self):
     return self._seq
@@ -540,14 +690,16 @@ class ACNeuralNetwork:
           for dst, src in zip(self.var_list, global_ac.var_list)])
 
         batch_size = tf.to_float(tf.shape(self.input)[0])
-        tf.summary.scalar("policy_loss", policy_loss / batch_size)
-        tf.summary.scalar("value_loss", value_loss / batch_size)
-        tf.summary.scalar("entropy", entropy / batch_size)
-        tf.summary.scalar("loss", self.loss / batch_size)
-        tf.summary.scalar("grad_global_norm", tf.global_norm(grads))
-        tf.summary.scalar("var_global_norm",
-            tf.global_norm(self.var_list))
-        self.summary_op = tf.summary.merge_all()
+        summaries = [
+          tf.summary.scalar("policy_loss", policy_loss / batch_size),
+          tf.summary.scalar("value_loss", value_loss / batch_size),
+          tf.summary.scalar("entropy", entropy / batch_size),
+          tf.summary.scalar("loss", self.loss / batch_size),
+          tf.summary.scalar("grad_global_norm", tf.global_norm(grads)),
+          tf.summary.scalar("var_global_norm",
+              tf.global_norm(self.var_list)),
+        ]
+        self.summary_op = tf.summary.merge(summaries)
 
   def InitialState(self):
     return self.state_init
@@ -646,7 +798,7 @@ class PathNeuralNetwork:
     pe = None
     for f in frames:
       e = f.incoming_enemies.get(eid)
-      if not e or e.y < 72:
+      if not e or e.y < 72:  # TODO: include <72
         pin = []
         pe = None
         continue
@@ -656,9 +808,11 @@ class PathNeuralNetwork:
         vx = e.x - pe.x
         vy = e.y - pe.y
       if abs(vx) > 20 or abs(vy) > 20:
-        break
+        pin = []
+        pe = None
+        continue
       dx = e.x - f.galaxian.x
-      coor = [dx, vx, vy]
+      coor = [dx, vx, vy]  # TODO: Add dy.
       coor += one_hot(3, enemy_type(e.row))
       pin.append(coor)
       pe = e
@@ -815,7 +969,9 @@ def main(unused_argv):
                            save_model_secs=600,
                            save_summaries_secs=60)
 
-  config = tf.ConfigProto(intra_op_parallelism_threads=len(workers))
+  config = tf.ConfigProto(
+      intra_op_parallelism_threads=FLAGS.num_workers,
+      log_device_placement=False)
 
   with sv.managed_session(config=config) as sess, sess.as_default():
     logging.info('ac: %s', format_list(global_ac.CheckSum()))
@@ -856,7 +1012,7 @@ class Worker(threading.Thread):
               stderr=open('/tmp/galaxian-{}.stderr'.format(self.task_id), 'w'))
       time.sleep(5)
 
-    game = Game(port, self.pnn)
+    game = self.game = Game(port, self.pnn)
     game.Start()
     frame = game.Step('_')
 
@@ -873,7 +1029,7 @@ class Worker(threading.Thread):
     lvl = logging.INFO if FLAGS.log_steps else logging.DEBUG
     step = 0
     trainings = 0
-    action_summary = defaultdict(int)
+    action_summary = [0] * OUTPUT_DIM
 
     sess = self.sess
     with sess.as_default():
@@ -883,6 +1039,8 @@ class Worker(threading.Thread):
         # eval action
         action, value, state, logits = ac.Eval(frame, state)
         action = ACTION_NAMES[action.argmax()]
+        if is_dangerous(frame):
+          action = self.plan()
         paths = frame.paths.values() if FLAGS.send_paths else []
 
         # take action
@@ -942,18 +1100,73 @@ class Worker(threading.Thread):
                 p_test_cost, inputs, targets, outputs, outputs - targets)
 
         # summary
-        action_summary[frame.action] += 1
+        action_summary[frame.action_id] += 1
         if step % 10000 == 0:
-          logging.info('actions %s', action_summary)
-          action_summary.clear()
+          logging.info('actions: %s', action_summary)
+          action_summary = [0] * OUTPUT_DIM
 
         # reset on terminal
         if frame.terminal:
           logging.info(
               'task: %d steps: %9d episode length: %4d rewards: %6.2f',
               self.task_id, step, game.length, game.rewards)
+
+          summary = tf.Summary()
+          summary.value.add(
+              tag='game/rewards', simple_value=float(game.rewards))
+          summary.value.add(tag='game/length', simple_value=float(game.length))
+          self.summary_writer.add_summary(summary, self.global_step.Eval())
+
           frame = game.Step('_')
           state = ac.InitialState()
+
+  def plan(self):
+    self.cache = {}
+    frame = self.game.last_frames[-1]
+    s = SFrame(frame)
+    rewards, actions = self.search(s, 0, 1.0)
+    dobj = dangerous_obj(frame)
+    assert dobj is not None
+    logging.info('search seq: %d gx: %3d my: %3d dobj: %03d,%03d '
+        'rewards: %7.2f actions: %-11s cache size: %d',
+        frame.seq, frame.galaxian.x, frame.missile.y, dobj.x, dobj.y,
+        rewards, actions, len(self.cache))
+    return actions[0]
+
+  def search(self, s, dep, decay):
+    MAX_DEPTH = 6
+    if dep >= MAX_DEPTH or s.rewards < 0:
+      ret = s.rewards, ''  # TODO: + value from nn
+    else:
+      h = hash(s)  # TODO: hash collision?
+      ret = self.cache.get(h)
+      if ret is not None:
+        return ret
+
+      ret = (-10000, '')  # best rewards, action
+
+      actions = copy.deepcopy(ACTION_NAMES)
+      if s.missile.y < 200:
+        actions = actions[:3]  # don't hold the A button
+      random.shuffle(actions)
+
+      threshold = 0
+      if s.missile.y < 200:
+        threshold = -1
+
+      for action in actions:
+        # TODO: simulate enemies and galaxian separately.
+        t = self.game.Simulate(s, action, decay)
+        tr, ta = self.search(t, dep+1, decay*0.99)
+        if tr > ret[0]:
+          ret = (tr, action+ta)
+        if ret[0] > threshold:
+          break  # don't be too greedy.
+
+      self.cache[h] = ret
+    logging.debug('%sgx: %d my: %d ret: %s',
+        '  '*dep, s.galaxian.x, s.missile.y, ret)
+    return ret
 
 
 if __name__ == '__main__':
