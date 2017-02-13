@@ -45,6 +45,7 @@ flags.DEFINE_string('rom', './galaxian.nes', 'galaxian nes rom file')
 flags.DEFINE_string('logdir', 'logs/2.28', 'Supervisor logdir')
 flags.DEFINE_integer('port', 5001, 'server port to conenct')
 flags.DEFINE_integer('num_workers', 1, 'num servers')
+flags.DEFINE_bool('search', False, 'enable searching')
 flags.DEFINE_bool('train', False, 'train or just play')
 flags.DEFINE_bool('train_pnn', False, 'train pnn')
 flags.DEFINE_bool('send_paths', False, 'send path to render by lua server')
@@ -1049,7 +1050,7 @@ class Worker(threading.Thread):
         # eval action
         action, value, state, logits = ac.Eval(frame, state)
         action = ACTIONS[action.argmax()]
-        if is_dangerous(frame):
+        if FLAGS.search and is_dangerous(frame):
           action = self.plan(logits)
         paths = frame.paths.values() if FLAGS.send_paths else []
 
