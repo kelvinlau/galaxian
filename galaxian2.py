@@ -45,6 +45,7 @@ flags.DEFINE_string('rom', './galaxian.nes', 'galaxian nes rom file')
 flags.DEFINE_string('logdir', 'logs/2.28', 'Supervisor logdir')
 flags.DEFINE_integer('port', 5001, 'server port to conenct')
 flags.DEFINE_integer('num_workers', 1, 'num servers')
+flags.DEFINE_bool('train', False, 'train or just play')
 flags.DEFINE_bool('train_pnn', False, 'train pnn')
 flags.DEFINE_bool('send_paths', False, 'send path to render by lua server')
 
@@ -65,9 +66,9 @@ else:
   FOCUS = 16
   INPUT_DIM = 3 + (2*FOCUS+3) + NUM_INCOMING_ENEMIES*5 + 2*HMAP_WIDTH
 PATH_LEN = 12
-ACTION_NAMES = ['_', 'L', 'R', 'A', 'l', 'r']
-ACTION_ID = {ACTION_NAMES[i]: i for i in xrange(len(ACTION_NAMES))}
-OUTPUT_DIM = len(ACTION_NAMES)
+ACTIONS = ['_', 'L', 'R', 'A', 'l', 'r']
+ACTION_ID = {ACTIONS[i]: i for i in xrange(len(ACTIONS))}
+OUTPUT_DIM = len(ACTIONS)
 
 
 class Timer:
@@ -95,6 +96,16 @@ class Point:
 
   def __hash__(self):
     return rehash(hash(self.x), hash(self.y))
+
+  def __repr__(self):
+    return '{},{}'.format(self.x, self.y)
+
+  def __str__(self):
+    return '{},{}'.format(self.x, self.y)
+
+
+def dist(a, b):
+  return max(abs(a.x - b.x), abs(a.y - b.y))
 
 
 def one_hot(n, i):
@@ -388,14 +399,6 @@ def is_dangerous(frame):
   return False
 
 
-def dangerous_obj(frame):
-  d = None
-  for e in frame.incoming_enemies.values() + frame.bullets.values():
-    if d is None or e.y > d.y:
-      d = e
-  return d
-
-
 class SFrame:
   def __init__(self, src):
     assert isinstance(src, Frame)
@@ -414,10 +417,6 @@ class SFrame:
     for eid in self.incoming_enemies:
       h = rehash(h, hash(eid))
     return h
-
-
-def collide(a, b, w):
-  return abs(a.x - b.x) <= w and abs(a.y - b.y) <= w
 
 
 class Game:
@@ -515,12 +514,12 @@ class Game:
         e.y = int(round(se.y + (te.y - se.y) * i / FRAME_SKIP))
 
       for b in t.bullets.values():
-        if collide(b, t.galaxian, 8):
+        if dist(b, t.galaxian) <= 8:
           t.rewards = -100 * decay
           return t
 
       for e in t.incoming_enemies.values():
-        if collide(e, t.galaxian, 12):
+        if dist(e, t.galaxian) <= 12:
           t.rewards = -100 * decay
           return t
       
@@ -528,14 +527,14 @@ class Game:
         hits = 0
         if t.missile < 112:
           num_still_enemies = len(t.still_enemies)
-          t.still_enemies = filter(lambda e: not collide(e, t.missile, 4),
+          t.still_enemies = filter(lambda e: dist(e, t.missile) > 4,
               t.still_enemies)
           hits += num_still_enemies - len(t.still_enemies)
           if hits:
             t.rewards += 1 * hits * decay
         
         for eid, e in t.incoming_enemies.items():
-          if collide(e, t.missile, 4):
+          if dist(e, t.missile) <= 4:
             t.rewards += (enemy_type(e.row) + 2) * decay
             del t.incoming_enemies[eid]
             hits += 1
@@ -1038,9 +1037,9 @@ class Worker(threading.Thread):
       while not self.sv.should_stop():
         # eval action
         action, value, state, logits = ac.Eval(frame, state)
-        action = ACTION_NAMES[action.argmax()]
+        action = ACTIONS[action.argmax()]
         if is_dangerous(frame):
-          action = self.plan()
+          action = self.plan(logits)
         paths = frame.paths.values() if FLAGS.send_paths else []
 
         # take action
@@ -1056,7 +1055,7 @@ class Worker(threading.Thread):
 
         # policy training
         TRAIN_LENGTH = 20
-        if len(experience) >= TRAIN_LENGTH or frame.terminal:
+        if FLAGS.train and len(experience) >= TRAIN_LENGTH or frame.terminal:
           trainings += 1
           do_summary = self.task_id == 0 and trainings % 10 == 0
 
@@ -1110,6 +1109,10 @@ class Worker(threading.Thread):
           logging.info(
               'task: %d steps: %9d episode length: %4d rewards: %6.2f',
               self.task_id, step, game.length, game.rewards)
+          for f in list(game.last_frames)[-5:]:
+            logging.info(
+                '  galaxian:%s missile:%s bullets:%s incoming_enemies:%s',
+                f.galaxian, f.missile, f.bullets, f.incoming_enemies)
 
           summary = tf.Summary()
           summary.value.add(
@@ -1120,20 +1123,19 @@ class Worker(threading.Thread):
           frame = game.Step('_')
           state = ac.InitialState()
 
-  def plan(self):
+  def plan(self, logits):
     self.cache = {}
+    self.last_logits = logits
     frame = self.game.last_frames[-1]
     s = SFrame(frame)
-    rewards, actions = self.search(s, 0, 1.0)
-    dobj = dangerous_obj(frame)
-    assert dobj is not None
-    logging.info('search seq: %d gx: %3d my: %3d dobj: %03d,%03d '
+    rewards, actions = self.search(frame.action, s, 0, 1.0)
+    logging.info('search seq: %d gx: %3d my: %3d '
         'rewards: %7.2f actions: %-11s cache size: %d',
-        frame.seq, frame.galaxian.x, frame.missile.y, dobj.x, dobj.y,
+        frame.seq, frame.galaxian.x, frame.missile.y,
         rewards, actions, len(self.cache))
     return actions[0]
 
-  def search(self, s, dep, decay):
+  def search(self, last_action, s, dep, decay):
     MAX_DEPTH = 6
     if dep >= MAX_DEPTH or s.rewards < 0:
       ret = s.rewards, ''  # TODO: + value from nn
@@ -1145,10 +1147,13 @@ class Worker(threading.Thread):
 
       ret = (-10000, '')  # best rewards, action
 
-      actions = copy.deepcopy(ACTION_NAMES)
-      if s.missile.y < 200:
+      actions = ACTIONS[:]
+      if s.missile.y < 200 or last_action in ['A', 'l', 'r']:
         actions = actions[:3]  # don't hold the A button
-      random.shuffle(actions)
+      if dep == 0:
+        actions.sort(key=lambda a: self.last_logits[ACTION_ID[a]], reverse=1)
+      else:
+        random.shuffle(actions)
 
       threshold = 0
       if s.missile.y < 200:
@@ -1157,7 +1162,7 @@ class Worker(threading.Thread):
       for action in actions:
         # TODO: simulate enemies and galaxian separately.
         t = self.game.Simulate(s, action, decay)
-        tr, ta = self.search(t, dep+1, decay*0.99)
+        tr, ta = self.search(action, t, dep+1, decay*0.99)
         if tr > ret[0]:
           ret = (tr, action+ta)
         if ret[0] > threshold:
