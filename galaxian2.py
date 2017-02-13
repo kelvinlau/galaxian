@@ -1135,18 +1135,36 @@ class Worker(threading.Thread):
           state = ac.InitialState()
 
   def plan(self, logits):
-    self.cache = {}
-    self.prob = [(2 ** logit) * random.random() for logit in logits]
     frame = self.game.last_frames[-1]
+
+    logits = logits.copy()
+    bonus_actions = ''
+    if frame.galaxian.x < 50:
+      bonus_actions += 'Rr'
+    elif frame.galaxian.x > 256-50:
+      bonus_actions += 'Ll'
+    for a in bonus_actions:
+      logits[ACTION_ID[a]] += 10.0
+    self.logits = logits
+
     s = SFrame(frame)
+    self.cache = {}
     rewards, actions = self.search(frame.action, s, 0, 1.0)
+    sr = rewards
+
+    for i in xrange(10):
+      if rewards > 0:
+        break
+      r, a = self.mcts(frame.action, s)
+      if r > rewards:
+        rewards, actions = r, a
+
     logging.info('search seq: %d gx: %3d my: %3d '
-        'rewards: %7.2f actions: %-11s cache size: %d',
+        'sr: %7.2f rewards: %7.2f actions: %-11s cache size: %d',
         frame.seq, frame.galaxian.x, frame.missile.y,
-        rewards, actions, len(self.cache))
+        sr, rewards, actions, len(self.cache))
     return actions[0]
 
-  # TODO: Do MCTS too.
   def search(self, last_action, s, dep, decay):
     MAX_DEPTH = 8
     if dep >= MAX_DEPTH or s.rewards < 0:
@@ -1163,7 +1181,8 @@ class Worker(threading.Thread):
       if s.missile.y < 200 or last_action in ['A', 'l', 'r']:
         actions = actions[:3]  # don't hold the A button
       if dep == 0:
-        actions.sort(key=lambda a: self.prob[ACTION_ID[a]], reverse=1)
+        prob = [math.exp(logit) * random.random() for logit in self.logits]
+        actions.sort(key=lambda a: prob[ACTION_ID[a]], reverse=1)
       else:
         random.shuffle(actions)
 
@@ -1181,9 +1200,34 @@ class Worker(threading.Thread):
           break  # don't be too greedy.
 
       self.cache[h] = ret
-    logging.debug('%sgx: %d my: %d ret: %s',
-        '  '*dep, s.galaxian.x, s.missile.y, ret)
     return ret
+
+  def mcts(self, last_action, s):
+    MAX_DEPTH = 8
+    decay = 1.0
+    actions = ''
+    for dep in xrange(0, MAX_DEPTH):
+      candidates = ACTIONS
+      logits = self.logits
+      if s.missile.y < 200 or last_action in ['A', 'l', 'r']:
+        candidates = candidates[:3]  # don't hold the A button
+        logits = logits[:3]
+      if dep == 0:
+        probs = np.exp(logits)
+        probs = np.maximum(probs, .01)
+        probs = np.minimum(probs, 100.)
+        probs /= np.sum(probs)
+        idx = np.where(np.random.multinomial(1, probs))[0][0]
+        action = candidates[idx]
+      else:
+        action = random.choice(candidates)
+
+      actions += action
+      s = self.game.Simulate(s, action, decay)
+      if s.rewards < 0:
+        return s.rewards, actions
+      decay *= 0.99
+    return s.rewards, actions
 
 
 if __name__ == '__main__':
