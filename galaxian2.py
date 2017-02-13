@@ -121,6 +121,14 @@ def num_bits(mask):
   return ret
 
 
+def low_bit(mask):
+  i = 0
+  while mask % 2 == 0:
+    mask /= 2
+    i += 1
+  return i
+
+
 def sign(x):
   if x == 0:
     return 0
@@ -404,7 +412,9 @@ class SFrame:
     assert isinstance(src, Frame)
     self.galaxian = src.galaxian
     self.missile = src.missile
-    self.still_enemies = src.still_enemies
+    self.sdx = src.sdx
+    self.svx = src.svx
+    self.masks = src.masks
     self.incoming_enemies = src.incoming_enemies
     self.bullets = src.bullets
     self.seq = src.seq
@@ -476,10 +486,10 @@ class Game:
     t.seq += 1
 
     # still enemies' speed is 1/5.
-    for e in t.still_enemies:
-      e.x += frame.svx * 1
+    t.sdx += t.svx
 
     fired = 0
+    # TODO: simulate 5 frames altogether?
     for i in xrange(1, FRAME_SKIP+1):
       if action in ['L', 'l']:
         t.galaxian.x = max(t.galaxian.x - 1, 22)
@@ -523,25 +533,26 @@ class Game:
           t.rewards = -100 * decay
           return t
       
-      if t.missile.y < 200:
-        hits = 0
-        if t.missile < 112:
-          num_still_enemies = len(t.still_enemies)
-          t.still_enemies = filter(lambda e: dist(e, t.missile) > 4,
-              t.still_enemies)
-          hits += num_still_enemies - len(t.still_enemies)
-          if hits:
-            t.rewards += 1 * hits * decay
+      hits = 0
+      if t.missile <= 112:
+        for i, mask in enumerate(t.masks):
+          if mask > 0:
+            e = Point(t.sdx + 16 * i, 108 - 12 * low_bit(mask))
+            if dist(e, t.missile) < 4:
+              hits += 1
+              t.rewards += 1 * decay
+              break
         
+      if t.missile.y < 200:
         for eid, e in t.incoming_enemies.items():
           if dist(e, t.missile) <= 4:
             t.rewards += (enemy_type(e.row) + 2) * decay
             del t.incoming_enemies[eid]
             hits += 1
 
-        if hits:
-          t.missile.y = 200
-          t.missile.x = t.galaxian.x
+      if hits:
+        t.missile.y = 200
+        t.missile.x = t.galaxian.x
 
     return t
 
@@ -1125,7 +1136,7 @@ class Worker(threading.Thread):
 
   def plan(self, logits):
     self.cache = {}
-    self.last_logits = logits
+    self.prob = [(2 ** logit) * random.random() for logit in logits]
     frame = self.game.last_frames[-1]
     s = SFrame(frame)
     rewards, actions = self.search(frame.action, s, 0, 1.0)
@@ -1135,8 +1146,9 @@ class Worker(threading.Thread):
         rewards, actions, len(self.cache))
     return actions[0]
 
+  # TODO: Do MCTS too.
   def search(self, last_action, s, dep, decay):
-    MAX_DEPTH = 6
+    MAX_DEPTH = 8
     if dep >= MAX_DEPTH or s.rewards < 0:
       ret = s.rewards, ''  # TODO: + value from nn
     else:
@@ -1151,13 +1163,13 @@ class Worker(threading.Thread):
       if s.missile.y < 200 or last_action in ['A', 'l', 'r']:
         actions = actions[:3]  # don't hold the A button
       if dep == 0:
-        actions.sort(key=lambda a: self.last_logits[ACTION_ID[a]], reverse=1)
+        actions.sort(key=lambda a: self.prob[ACTION_ID[a]], reverse=1)
       else:
         random.shuffle(actions)
 
-      threshold = 0
-      if s.missile.y < 200:
-        threshold = -1
+      threshold = -1
+      #if s.missile.y < 200:
+      #  threshold = -1
 
       for action in actions:
         # TODO: simulate enemies and galaxian separately.
