@@ -136,6 +136,11 @@ def sign(x):
   return 1 if x > 0 else -1
 
 
+# The nearest kx+b to y
+def nearest_multiple(b, k, y):
+  return int(round(1.0*(y-b)/k))*k+b
+
+
 def hmap_string(hmap):
   def s(h):
     if h <= 0: return '_'
@@ -476,12 +481,13 @@ class Game:
 
     return frame
 
-  def Simulate(self, s, action, decay):
+  def Simulate(self, s, action):
     FRAME_SKIP = 5
     WIDTH = 256
 
     frame = self.last_frames[-1]
     dep = s.seq - frame.seq
+    decay = 0.99**dep
 
     t = copy.deepcopy(s)
     t.seq += 1
@@ -541,13 +547,13 @@ class Game:
             e = Point(t.sdx + 16 * i, 108 - 12 * low_bit(mask))
             if dist(e, t.missile) < 4:
               hits += 1
-              t.rewards += 1 * decay
+              t.rewards += 1
               break
         
       if t.missile.y < 200:
         for eid, e in t.incoming_enemies.items():
-          if dist(e, t.missile) <= 4:
-            t.rewards += (enemy_type(e.row) + 2) * decay
+          if dist(e, t.missile) < 4:
+            t.rewards += (enemy_type(e.row) + 2)
             del t.incoming_enemies[eid]
             hits += 1
 
@@ -1136,8 +1142,10 @@ class Worker(threading.Thread):
           frame = game.Step('_')
           state = ac.InitialState()
 
+  MAX_DEPTH = 8
+
   def plan(self, logits):
-    frame = self.game.last_frames[-1]
+    self.frame = frame = self.game.last_frames[-1]
 
     logits = logits.copy()
     bonus_actions = ''
@@ -1151,25 +1159,62 @@ class Worker(threading.Thread):
 
     s = SFrame(frame)
     self.cache = {}
-    rewards, actions = self.search(frame.action, s, 0, 1.0)
-    sr = rewards
+    rewards, actions = self.search(frame.action, s)
+    stra = 's'
+
+    # TODO: do this if missile if fired too.
+    routes = None
+    grewards = None
+    if s.missile.y >= 200 and rewards <= 1:
+      routes = []
+      grewards = []
+      for eid, e in s.incoming_enemies.iteritems():
+        path = frame.paths.get(eid)
+        if path is None:
+          continue
+        prev = e
+        for t in xrange(1, Worker.MAX_DEPTH+1):
+          pos = path[t-1]
+          hit = Point(
+              nearest_multiple(frame.galaxian.x, 5, pos.x),
+              nearest_multiple(184, 20, pos.y))
+          if hit.y < 184 or dist(hit, pos) >= 4:
+            continue
+          ty = (204-hit.y)/20
+          tx = (hit.x-frame.galaxian.x)/5
+          ts = t - abs(tx) - ty
+          if ts >= 0:
+            # TODO: add ty to score?
+            routes.append((abs(pos.x-prev.x), tx, ts))
+          prev = pos
+      routes.sort()
+      routes = routes[:4]
+      for i, (_, tx, ts) in enumerate(routes):
+        if rewards > 1:
+          break
+        r, a = self.greedy(s, tx, ts)
+        grewards.append(r)
+        if r >= rewards:
+          rewards, actions = r, a
+          stra = 'g'+str(i)
 
     for i in xrange(10):
       if rewards > 0:
         break
-      r, a = self.mcts(frame.action, s)
+      r, a = self.mcts(s)
       if r > rewards:
         rewards, actions = r, a
+        stra = 'm'
 
     logging.info('search seq: %d gx: %3d my: %3d '
-        'sr: %7.2f rewards: %7.2f actions: %-11s cache size: %d',
+        'stra: %-2s rewards: %7.2f actions: %-11s cache size: %5d routes: %s grewards: %s',
         frame.seq, frame.galaxian.x, frame.missile.y,
-        sr, rewards, actions, len(self.cache))
+        stra, rewards, actions, len(self.cache), routes, grewards)
     return actions[0]
 
-  def search(self, last_action, s, dep, decay):
-    MAX_DEPTH = 8
-    if dep >= MAX_DEPTH or s.rewards < 0:
+  def search(self, last_action, s, actions=None):
+    dep = s.seq - self.frame.seq
+    if dep >= Worker.MAX_DEPTH or s.rewards < 0:
       ret = s.rewards, ''  # TODO: + value from nn
     else:
       h = hash(s)  # TODO: hash collision?
@@ -1179,45 +1224,55 @@ class Worker(threading.Thread):
 
       ret = (-10000, '')  # best rewards, action
 
-      actions = ACTIONS[:]
-      if s.missile.y < 200 or last_action in ['A', 'l', 'r']:
-        actions = actions[:3]  # don't hold the A button
-      if dep == 0:
-        prob = [math.exp(logit) * random.random() for logit in self.logits]
-        actions.sort(key=lambda a: prob[ACTION_ID[a]], reverse=1)
-      else:
-        random.shuffle(actions)
-
-      threshold = -1
-      #if s.missile.y < 200:
-      #  threshold = -1
+      if actions is None:
+        actions = ACTIONS[:]
+        if s.missile.y < 200 or last_action in 'Alr':
+          actions = actions[:3]  # don't hold the A button
+        if dep == 0:
+          prob = [math.exp(logit) * random.random() for logit in self.logits]
+          actions.sort(key=lambda a: prob[ACTION_ID[a]], reverse=1)
+        else:
+          random.shuffle(actions)
 
       for action in actions:
         # TODO: simulate enemies and galaxian separately.
-        t = self.game.Simulate(s, action, decay)
-        tr, ta = self.search(action, t, dep+1, decay*0.99)
+        t = self.game.Simulate(s, action)
+        tr, ta = self.search(action, t)
         if tr > ret[0]:
           ret = (tr, action+ta)
-        if ret[0] > threshold:
-          break  # don't be too greedy.
+        if ret[0] >= 0:
+          break  # just to survive
 
       self.cache[h] = ret
     return ret
 
-  def mcts(self, last_action, s):
-    MAX_DEPTH = 8
-    decay = 1.0
+  def greedy(self, s, tx, ts):
+    ax = 'R' if tx > 0 else 'L'
+    tx = abs(tx)
     actions = ''
-    for dep in xrange(0, MAX_DEPTH):
+    for a, t in [(ax, tx), ('_', ts)]:
+      for i in xrange(t):
+        actions += a
+        s = self.game.Simulate(s, a)
+        if s.rewards < 0 or len(actions) >= Worker.MAX_DEPTH:
+          return s.rewards, actions
+    last_action = actions[-1] if len(actions) else self.frame.action
+    rewards, actions1 = self.search(last_action, s, actions='Alr')
+    return rewards, actions + actions1
+
+  def mcts(self, s):
+    actions = ''
+    last_action = self.frame.action
+    for dep in xrange(0, Worker.MAX_DEPTH):
       candidates = ACTIONS
       logits = self.logits
-      if s.missile.y < 200 or last_action in ['A', 'l', 'r']:
+      if s.missile.y < 200 or last_action in 'Alr':
         candidates = candidates[:3]  # don't hold the A button
         logits = logits[:3]
       if dep == 0:
+        logits -= np.max(logits)
         probs = np.exp(logits)
         probs = np.maximum(probs, .01)
-        probs = np.minimum(probs, 100.)
         probs /= np.sum(probs)
         idx = np.where(np.random.multinomial(1, probs))[0][0]
         action = candidates[idx]
@@ -1225,10 +1280,10 @@ class Worker(threading.Thread):
         action = random.choice(candidates)
 
       actions += action
-      s = self.game.Simulate(s, action, decay)
+      last_action = action
+      s = self.game.Simulate(s, action)
       if s.rewards < 0:
         return s.rewards, actions
-      decay *= 0.99
     return s.rewards, actions
 
 
