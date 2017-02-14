@@ -1088,6 +1088,7 @@ class Worker(threading.Thread):
               list(game.last_frames)))
 
           # training
+          MINI_BATCH_SIZE = 32
           if len(pdata) >= 1000:
             EPOCHS = 2
             p_train_cost = 0
