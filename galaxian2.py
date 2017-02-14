@@ -6,15 +6,8 @@ https://www.nervanasys.com/demystifying-deep-reinforcement-learning/
 https://medium.com/@awjuliani/simple-reinforcement-learning-with-tensorflow-part-4-deep-q-networks-and-beyond-8438a3e2b8df#.tithx7juq
 https://github.com/openai/universe-starter-agent/
 
-TODO: Add var names, print shapes.
-TODO: ac-0.
-TODO: No artificial rewards.
-TODO: Raw image as input.
 TODO: Save png to verify input data.
-TODO: Dropout/Bayesian.
 TODO: Model based, Dyna, Sarsa, TD search, Monte Carlo.
-TODO: Fix A holding.
-TODO: Tree trimming.
 """
 
 from __future__ import print_function
@@ -28,7 +21,6 @@ import subprocess
 import logging
 import threading
 import copy
-#import cv2
 import scipy.signal
 import numpy as np
 import tensorflow as tf
@@ -42,7 +34,7 @@ flags.DEFINE_bool('log_steps', False, 'log steps')
 flags.DEFINE_string('server_tasks', '', 'tasks to start servers')
 flags.DEFINE_string('server', './server', 'server binary')
 flags.DEFINE_string('rom', './galaxian.nes', 'galaxian nes rom file')
-flags.DEFINE_string('logdir', 'logs/2.28', 'Supervisor logdir')
+flags.DEFINE_string('logdir', 'logs/2.29', 'Supervisor logdir')
 flags.DEFINE_integer('port', 5001, 'server port to conenct')
 flags.DEFINE_integer('num_workers', 1, 'num servers')
 flags.DEFINE_bool('search', False, 'enable searching')
@@ -54,14 +46,10 @@ flags.DEFINE_bool('send_paths', False, 'send path to render by lua server')
 # Game input/output.
 NUM_STILL_ENEMIES = 10
 NUM_INCOMING_ENEMIES = 7
-RAW_IMAGE = False
-if RAW_IMAGE:
-  NUM_SNAPSHOTS = 4
-  SCALE = 2
-  WIDTH = 256/SCALE
-  HEIGHT = 240/SCALE
-  SIDE = 84
-else:
+WIDTH = 256
+HEIGHT = 240
+RAW_IMAGE = True
+if not RAW_IMAGE:
   DX = 4
   HMAP_WIDTH = 256 / DX
   FOCUS = 16
@@ -179,11 +167,10 @@ class Frame:
     # Penalty on holding the A button.
     if prev_frames:
       pv = prev_frames[-1]
-      if pv.missile.y < 200 and self.action in ['A', 'l', 'r']:
+      if pv.missile.y < 200 and self.action in 'Alr':
         self.reward -= 0.25
 
-    galaxian = self.NextPoint()
-    self.galaxian = galaxian
+    self.galaxian = galaxian = self.NextPoint()
 
     self.missile = self.NextPoint()
     # penalty on miss
@@ -191,7 +178,7 @@ class Frame:
     if self.missile.y <= 4:
       self.reward -= 0.1
 
-    # still enemies (encoded)
+    # still enemies
     self.sdx = self.NextInt()
     self.masks = []
     for i in xrange(10):
@@ -337,44 +324,21 @@ class Frame:
       logging.debug('imap [%s]', hmap_string(imap))
       logging.debug('bmap [%s]', hmap_string(bmap))
 
-      if not self.terminal:
-        self.reward -= min(1., bmap[ix(galaxian.x)]) * .25
-
       assert len(self.data) == INPUT_DIM, \
           '{} vs {}'.format(len(self.data), INPUT_DIM)
       self.data = np.array(self.data)
     else:
       self.data = np.zeros((WIDTH, HEIGHT))
-
-      self.AddRect(galaxian, 16, 16, .5)
-
+      self.rect(galaxian, 16, 16)
       if self.missile.y < 200:
-        self.AddRect(self.missile, 4, 8, .5)
-
+        self.rect(self.missile, 4, 8)
       for e in self.still_enemies:
-        self.AddRect(e, 8, 12)
-
+        self.rect(e, 8, 8)
       for e in self.incoming_enemies.values():
-        self.AddRect(e, 8, 12)
-
+        self.rect(e, 8, 8)
       for b in self.bullets.values():
-        self.AddRect(b, 4, 12)
-
-      self.data = cv2.resize(self.data, (SIDE, SIDE))
-
-      if not prev_frames:
-        self.data = np.reshape(self.data, (SIDE, SIDE, 1))
-        for i in xrange(NUM_SNAPSHOTS-1):
-          self.data = np.append(
-              self.data,
-              np.reshape(self.data, (SIDE, SIDE, 1)),
-              axis = 2)
-      else:
-        prev_frame = prev_frames[-1]
-        self.data = np.append(
-            np.reshape(self.data, (SIDE, SIDE, 1)),
-            prev_frame.data[:, :, :NUM_SNAPSHOTS-1],
-            axis = 2)
+        self.rect(b, 4, 8)
+      self.data = np.reshape(self.data, [WIDTH, HEIGHT, 1])
 
   def NextToken(self):
     self._idx += 1
@@ -386,11 +350,9 @@ class Frame:
   def NextPoint(self):
     return Point(self.NextInt(), self.NextInt())
 
-  def AddRect(self, c, w, h, v=1.):
-    c.x /= SCALE
-    c.y /= SCALE
-    w /= 2 * SCALE
-    h /= 2 * SCALE
+  def rect(self, c, w, h, v=1.):
+    w /= 2
+    h /= 2
     x1 = max(c.x - w, 0)
     x2 = min(c.x + w, WIDTH)
     y1 = max(c.y - h, 0)
@@ -483,7 +445,6 @@ class Game:
 
   def Simulate(self, s, action):
     FRAME_SKIP = 5
-    WIDTH = 256
 
     frame = self.last_frames[-1]
     dep = s.seq - frame.seq
@@ -598,89 +559,77 @@ def discount(x, gamma):
   return scipy.signal.lfilter([1], [1, -gamma], x[::-1], axis=0)[::-1]
 
 
+def var(shape, name=None):
+  return tf.Variable(tf.truncated_normal(shape, stddev=.02), name=name)
+
+
+def linear(x, n, name):
+  m = x.get_shape().as_list()[1]
+  w = var([m, n], name=name+'/w')
+  b = var([n], name=name+'/b')
+  return tf.matmul(x, w) + b
+
+
+def conv2d(x, num_filters, name, filter_size, stride):
+  stride_shape = [1, stride[0], stride[1], 1]
+  filter_shape = [filter_size[0], filter_size[1], int(x.get_shape()[3]),
+      num_filters]
+  w = var(filter_shape, name=name+'/w')
+  b = var([1, 1, 1, num_filters], name=name+'/b')
+  return tf.nn.conv2d(x, w, stride_shape, 'VALID') + b
+
+
+def flatten(x):
+  return tf.reshape(x, [-1, np.prod(x.get_shape().as_list()[1:])])
+
+
 class ACNeuralNetwork:
   def __init__(self, name, global_ac=None):
-    var = lambda shape: tf.Variable(
-        tf.truncated_normal(shape, stddev=.02))
-
     with tf.variable_scope(name):
+      # Input.
       if not RAW_IMAGE:
-        # Input.
-        self.input = tf.placeholder(tf.float32, [None, INPUT_DIM], name='input')
-        x = self.input
-
-        N1 = 64
-        N2 = 64
-        x = tf.nn.elu(tf.matmul(x, var([INPUT_DIM, N1])) + var([N1]))
-        x = tf.nn.elu(tf.matmul(x, var([N1, N2])) + var([N2]))
-        x = tf.expand_dims(x, [0])
-
-        LSTM_SIZE = 64
-        lstm = tf.nn.rnn_cell.LSTMCell(LSTM_SIZE, state_is_tuple=True)
-
-        c_init = np.zeros((1, lstm.state_size.c), np.float32)
-        h_init = np.zeros((1, lstm.state_size.h), np.float32)
-        self.state_init = [c_init, h_init]
-
-        c_in = tf.placeholder(tf.float32, [1, lstm.state_size.c], name='c')
-        h_in = tf.placeholder(tf.float32, [1, lstm.state_size.h], name='h')
-        self.state_in = [c_in, h_in]
-
-        lstm_outputs, lstm_state = tf.nn.dynamic_rnn(
-            lstm, x, initial_state=tf.nn.rnn_cell.LSTMStateTuple(c_in, h_in),
-            sequence_length=tf.shape(self.input)[:1])
-        lstm_c, lstm_h = lstm_state
-        self.state_out = [lstm_c, lstm_h]
-
-        x = tf.reshape(lstm_outputs, [-1, LSTM_SIZE])
-        self.logits = tf.matmul(x, var([LSTM_SIZE, OUTPUT_DIM])) \
-            + var([OUTPUT_DIM])
-        self.value = tf.reshape(
-            tf.matmul(x, var([LSTM_SIZE, 1])) + var([1]),
-            [-1])
-        self.action = categorical_sample(self.logits, OUTPUT_DIM)
+        x = self.input = tf.placeholder(tf.float32, [None, INPUT_DIM],
+            name='input')
+        x = tf.elu(linear(x, 64, 'l0'))
+        x = tf.elu(linear(x, 64, 'l1'))
+        LSTM_SIZE = 32
       else:
-        # Input image.
-        self.input = tf.placeholder(tf.float32,
-            [None, SIDE, SIDE, NUM_SNAPSHOTS])
+        x = self.input = tf.placeholder(tf.float32, [None, WIDTH, HEIGHT, 1],
+            name='input')
+        for i in xrange(4):
+          x = tf.nn.elu(conv2d(x, 32, 'c'+str(i), [3, 3], [2, 2]))
+        x = flatten(x)
+        LSTM_SIZE = 256
 
-        # Conv 1.
-        self.w1 = var([8, 8, NUM_SNAPSHOTS, 32])
-        self.b1 = var([32])
-        conv1 = tf.nn.relu(tf.nn.conv2d(
-          self.input, self.w1, strides = [1, 4, 4, 1], padding = "VALID")
-          + self.b1)
+      # Make batch size as time dimension.
+      x = tf.expand_dims(x, [0])
 
-        # Conv 2.
-        self.w2 = var([4, 4, 32, 64])
-        self.b2 = var([64])
-        conv2 = tf.nn.relu(tf.nn.conv2d(
-          conv1, self.w2, strides = [1, 2, 2, 1], padding = "VALID")
-          + self.b2)
+      # LSTM.
+      lstm = tf.nn.rnn_cell.LSTMCell(LSTM_SIZE, state_is_tuple=True)
 
-        # Conv 3.
-        self.w3 = var([3, 3, 64, 64])
-        self.b3 = var([64])
-        conv3 = tf.nn.relu(tf.nn.conv2d(
-          conv2, self.w3, strides = [1, 1, 1, 1], padding = "VALID")
-          + self.b3)
+      c_init = np.zeros((1, lstm.state_size.c), np.float32)
+      h_init = np.zeros((1, lstm.state_size.h), np.float32)
+      self.state_init = [c_init, h_init]
 
-        # Flatten conv 3.
-        conv3_flat = tf.reshape(conv3, [-1, 3136])
+      c_in = tf.placeholder(tf.float32, [1, lstm.state_size.c], name='c')
+      h_in = tf.placeholder(tf.float32, [1, lstm.state_size.h], name='h')
+      self.state_in = [c_in, h_in]
 
-        # Fully connected 4.
-        self.w4 = var([3136, 512])
-        self.b4 = var([512])
-        fc4 = tf.nn.relu(tf.matmul(conv3_flat, self.w4) + self.b4)
+      lstm_outputs, lstm_state = tf.nn.dynamic_rnn(
+          lstm, x, initial_state=tf.nn.rnn_cell.LSTMStateTuple(c_in, h_in),
+          sequence_length=tf.shape(self.input)[:1])
+      lstm_c, lstm_h = lstm_state
+      self.state_out = [lstm_c, lstm_h]
 
-        # Output.
-        self.w5 = var([512, OUTPUT_DIM])
-        self.b5 = var([OUTPUT_DIM])
-        self.output = (tf.matmul(fc4, self.w5) + self.b5)
+      # Output logits and value.
+      x = tf.reshape(lstm_outputs, [-1, LSTM_SIZE])
+      self.logits = linear(x, OUTPUT_DIM, 'logits')
+      self.value = tf.reshape(linear(x, 1, 'value'), [-1])
+      self.action = categorical_sample(self.logits, OUTPUT_DIM)
 
-      self.var_list = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES,
+      self.var_list = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES,
           scope=name)
-      assert len(self.var_list) == (10 if RAW_IMAGE else 10), len(self.var_list)
+      assert len(self.var_list) == (14 if RAW_IMAGE else 10), len(self.var_list)
 
       if global_ac is not None:
         self.actual_action = tf.placeholder(tf.float32, [None, OUTPUT_DIM],
@@ -773,8 +722,6 @@ class ACNeuralNetwork:
 
 class PathNeuralNetwork:
   def __init__(self, name):
-    var = lambda shape: tf.Variable(tf.truncated_normal(shape, stddev=.02))
-
     with tf.variable_scope(name):
       INPUT_SIZE = 6
       OUTPUT_SIZE = 2*PATH_LEN
@@ -790,8 +737,7 @@ class PathNeuralNetwork:
       rnn_out, state = tf.nn.dynamic_rnn(lstm, self.input, dtype=tf.float32)
       rnn_out = tf.transpose(rnn_out, [1, 0, 2])
       rnn_out = rnn_out[-1]
-      self.output = tf.matmul(rnn_out, var([LSTM_SIZE, OUTPUT_SIZE])) \
-          + var([OUTPUT_SIZE])
+      self.output = linear(rnn_out, OUTPUT_SIZE, name='output')
 
       self.target = tf.placeholder(tf.float32, [None, OUTPUT_SIZE])
       self.cost = tf.reduce_mean(tf.square(self.output - self.target))
@@ -970,6 +916,10 @@ def main(unused_argv):
   pnn = PathNeuralNetwork('pnn')
   summary_writer = tf.summary.FileWriter(os.path.join(FLAGS.logdir, 'summary'))
 
+  logging.info('variables:')
+  for var in tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES):
+    logging.info('  %s: %s', var.name, var.get_shape())
+
   server_tasks = parse_ints(FLAGS.server_tasks)
   workers = [
       Worker(global_step, global_ac, pnn, summary_writer, i, i in server_tasks)
@@ -1012,7 +962,7 @@ class Worker(threading.Thread):
     self.summary_writer = summary_writer
     self.task_id = task_id
     self.start_server = start_server
-    self.ac = ACNeuralNetwork('ac_' + str(task_id), global_ac=global_ac)
+    self.ac = ACNeuralNetwork('ac-' + str(task_id), global_ac=global_ac)
 
   def Start(self, sv, sess):
     self.sv = sv
@@ -1128,10 +1078,11 @@ class Worker(threading.Thread):
           logging.info(
               'task: %d steps: %9d episode length: %4d rewards: %6.2f',
               self.task_id, step, game.length, game.rewards)
-          for f in list(game.last_frames)[-5:]:
-            logging.info(
-                '  galaxian:%s missile:%s bullets:%s incoming_enemies:%s',
-                f.galaxian, f.missile, f.bullets, f.incoming_enemies)
+          if FLAGS.search:
+            for f in list(game.last_frames)[-5:]:
+              logging.info(
+                  '  galaxian:%s missile:%s bullets:%s incoming_enemies:%s',
+                  f.galaxian, f.missile, f.bullets, f.incoming_enemies)
 
           summary = tf.Summary()
           summary.value.add(
