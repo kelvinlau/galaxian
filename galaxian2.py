@@ -689,10 +689,10 @@ class ACNeuralNetwork:
             tf.reduce_sum(log_prob * self.actual_action, [1]) * self.advantage)
         value_loss = 0.5 * tf.reduce_sum(tf.square(self.value - self.r))
         entropy = -tf.reduce_sum(prob * log_prob)
-        self.loss = policy_loss + 0.5 * value_loss - 0.01 * entropy
+        self.loss = policy_loss + 0.5 * value_loss - 0.001 * entropy
 
         grads = tf.gradients(self.loss, self.var_list)
-        grads_clipped, _ = tf.clip_by_global_norm(grads, 40.0)
+        grads_clipped, _ = tf.clip_by_global_norm(grads, 1.0)
 
         self.optimizer = tf.train.AdamOptimizer(1e-4).apply_gradients(
             zip(grads_clipped, global_ac.var_list))
