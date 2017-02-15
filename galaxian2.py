@@ -1023,9 +1023,10 @@ class Worker(threading.Thread):
 
         # policy training
         TRAIN_LENGTH = 20
-        if FLAGS.train and len(experience) >= TRAIN_LENGTH or frame.terminal:
+        if FLAGS.train and (len(experience) >= TRAIN_LENGTH or frame.terminal):
           trainings += 1
           do_summary = self.task_id == 0 and trainings % 10 == 0
+
 
           ac.Sync()
           summary = ac.Train(experience, return_summary=do_summary)
@@ -1070,7 +1071,7 @@ class Worker(threading.Thread):
         # summary
         action_summary[frame.action_id] += 1
         if step % 10000 == 0:
-          logging.info('actions: %s', action_summary)
+          logging.info('actions: %s', zip(ACTIONS, action_summary))
           action_summary = [0] * OUTPUT_DIM
 
         # reset on terminal
