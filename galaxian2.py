@@ -928,7 +928,7 @@ def main(unused_argv):
   sv = tf.train.Supervisor(logdir=FLAGS.logdir,
                            global_step=global_step.var,
                            saver=tf.train.Saver(
-                               max_to_keep=1000,
+                               max_to_keep=10,
                                keep_checkpoint_every_n_hours=1,
                                pad_step_number=True),
                            summary_op=None,
@@ -977,7 +977,7 @@ class Worker(threading.Thread):
       server = subprocess.Popen([FLAGS.server, FLAGS.rom, str(port)],
               stdout=open('/tmp/galaxian-{}.stdout'.format(self.task_id), 'w'),
               stderr=open('/tmp/galaxian-{}.stderr'.format(self.task_id), 'w'))
-      time.sleep(5)
+      time.sleep(20)
 
     game = self.game = Game(port, self.pnn)
     game.Start()
@@ -1046,7 +1046,7 @@ class Worker(threading.Thread):
 
           # training
           MINI_BATCH_SIZE = 32
-          if len(pdata) >= 1000:
+          if len(pdata) >= 10000:
             EPOCHS = 2
             p_train_cost = 0
             n = 0
