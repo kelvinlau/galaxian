@@ -6,7 +6,6 @@ https://www.nervanasys.com/demystifying-deep-reinforcement-learning/
 https://medium.com/@awjuliani/simple-reinforcement-learning-with-tensorflow-part-4-deep-q-networks-and-beyond-8438a3e2b8df#.tithx7juq
 https://github.com/openai/universe-starter-agent/
 
-TODO: Save png to verify input data.
 TODO: Model based, Dyna, Sarsa, TD search, Monte Carlo.
 """
 
@@ -22,6 +21,7 @@ import logging
 import threading
 import copy
 import scipy.signal
+import scipy.misc
 import numpy as np
 import tensorflow as tf
 
@@ -45,6 +45,7 @@ flags.DEFINE_bool('train', False, 'train or just play')
 flags.DEFINE_bool('train_pnn', False, 'train pnn')
 flags.DEFINE_bool('send_paths', False, 'send path to render by ui server')
 flags.DEFINE_bool('send_value', False, 'send value to render by ui server')
+flags.DEFINE_bool('verify_image', False, 'save image to verify input')
 
 
 # Game input/output.
@@ -1039,6 +1040,10 @@ class Worker(threading.Thread):
             "Step %d value: %7.3f logits: %s action: %s reward: %5.2f",
             step, value, format_list(logits, fmt='%7.3f'), frame.action,
             frame.reward)
+
+        if FLAGS.verify_image and step % 100 == 0 and self.task_id == 0:
+          scipy.misc.imsave('image.jpg',
+              np.transpose(np.reshape(frame.data, (WIDTH, HEIGHT))))
 
         # policy training
         TRAIN_LENGTH = 20

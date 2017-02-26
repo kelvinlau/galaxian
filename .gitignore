@@ -8,3 +8,4 @@ server
 *.o
 auxlib.lua
 logs/*
+*.jpg
