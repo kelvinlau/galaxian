@@ -97,21 +97,32 @@ function Recv(client)
     end
   end
 
-  PATH_LEN = 12
-  local paths = {}
   local i = 3
-  while i <= #result do
-    local path = {}
-    for j=1,PATH_LEN do
-      local x = tonumber(result[i])
-      local y = tonumber(result[i + 1])
-      i = i + 2
-      path[#path+1] = {x=x, y=y}
+
+  local paths = {}
+  if i <= #result and result[i] == 'paths' then
+    local num_paths = tonumber(result[i+1])
+    i = i + 2
+    local PATH_LEN = 12
+    for k=1,num_paths do
+      local path = {}
+      for j=1,PATH_LEN do
+        local x = tonumber(result[i])
+        local y = tonumber(result[i + 1])
+        i = i + 2
+        path[#path+1] = {x=x, y=y}
+      end
+      paths[#paths+1] = path
     end
-    paths[#paths+1] = path
   end
 
-  return ctrl, seq, paths
+  local value = nil
+  if i <= #result and result[i] == 'value' then
+    value = result[i+1]
+    i = i + 2
+  end
+
+  return ctrl, seq, paths, value
 end
 
 ---- start handshake ----
@@ -130,7 +141,14 @@ end
 
 function ShowScore(score, max_score)
   gui.drawtext(10, 10, "Score " .. score)
-  gui.drawtext(100, 10, "Max Score " .. max_score)
+  gui.drawtext(80, 10, "Max Score " .. max_score)
+end
+
+function ShowValue(value)
+  if value == nil then
+    return
+  end
+  gui.drawtext(10, 20, "Value " .. value)
 end
 
 function ShowPaths(paths)
@@ -164,11 +182,6 @@ handles[dialogs] = iup.dialog{iup.vbox{
     action=
       function (self)
         human_play = not human_play
-        if human_play then
-          emu.speedmode("normal")
-        else
-          emu.speedmode("turbo")
-        end
       end
   },
   iup.button{
@@ -238,7 +251,7 @@ while true do
 
   local control = nil
   local seq = nil
-  control, seq, paths = Recv(client)
+  control, seq, paths, value = Recv(client)
 
   local reward = 0
   local terminal = false
@@ -249,6 +262,7 @@ while true do
     Show(recent_games)
     ShowScore(reward_sum, max_score)
     ShowPaths(paths)
+    ShowValue(value)
     if human_play and i == 1 then
       joypad.set(1, {})
     else

@@ -436,4 +436,5 @@ function Reset()
     end
   end
   SkipFrames(240)
+  emu.speedmode("normal")
 end

@@ -31,16 +31,20 @@ FLAGS = flags.FLAGS
 
 flags.DEFINE_bool('debug', False, 'enable logging.debug')
 flags.DEFINE_bool('log_steps', False, 'log steps')
-flags.DEFINE_string('server_tasks', '', 'tasks to start servers')
-flags.DEFINE_string('server', './server', 'server binary')
-flags.DEFINE_string('rom', './galaxian.nes', 'galaxian nes rom file')
+flags.DEFINE_string('ui_tasks', '', 'tasks to start ui servers')
+flags.DEFINE_string('ui_server', '../fceux-2.2.3-win32/fceux.exe -lua '
+    'Z:\home\kelvinlau\galaxian\server.lua '
+    'Z:\home\kelvinlau\galaxian\galaxian.nes',
+    'ui server command')
+flags.DEFINE_string('cc_server', './server ./galaxian.nes', 'cc server command')
 flags.DEFINE_string('logdir', 'logs/2.29', 'Supervisor logdir')
 flags.DEFINE_integer('port', 5001, 'server port to conenct')
 flags.DEFINE_integer('num_workers', 1, 'num servers')
 flags.DEFINE_bool('search', False, 'enable searching')
 flags.DEFINE_bool('train', False, 'train or just play')
 flags.DEFINE_bool('train_pnn', False, 'train pnn')
-flags.DEFINE_bool('send_paths', False, 'send path to render by lua server')
+flags.DEFINE_bool('send_paths', False, 'send path to render by ui server')
+flags.DEFINE_bool('send_value', False, 'send value to render by ui server')
 
 
 # Game input/output.
@@ -402,6 +406,7 @@ class Game:
     self._sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     self._sock.connect(('localhost', port))
     self._fin = self._sock.makefile()
+
     self._pnn = pnn
     self.last_frames = deque()
     self.length = 0
@@ -412,7 +417,7 @@ class Game:
     self._sock.send('galaxian:start %d\n' % (seq+1))
     assert self._fin.readline().strip() == 'ack'
 
-  def Step(self, action, paths=[]):
+  def Step(self, action, paths=[], value=None):
     if self.last_frames and self.last_frames[-1].terminal:
       self.last_frames.clear()
       self.length = 0
@@ -421,10 +426,14 @@ class Game:
     self._seq += 1
 
     msg = action + ' ' + str(self._seq)
-    for path in paths:
-      for p in path:
-        msg += ' ' + str(int(p.x))
-        msg += ' ' + str(int(p.y))
+    if paths:
+      msg += ' paths ' + str(len(paths))
+      for path in paths:
+        for p in path:
+          msg += ' ' + str(int(p.x))
+          msg += ' ' + str(int(p.y))
+    if value is not None:
+      msg += ' value ' + str(value)
     logging.debug('Step %s', msg)
     self._sock.send(msg + '\n')
 
@@ -920,10 +929,11 @@ def main(unused_argv):
   for var in tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES):
     logging.info('  %s: %s', var.name, var.get_shape())
 
-  server_tasks = parse_ints(FLAGS.server_tasks)
+  ui_tasks = parse_ints(FLAGS.ui_tasks)
+  MAX_WORKERS = 16
   workers = [
-      Worker(global_step, global_ac, pnn, summary_writer, i, i in server_tasks)
-      for i in xrange(16)]
+      Worker(global_step, global_ac, pnn, summary_writer, i, i in ui_tasks)
+      for i in xrange(MAX_WORKERS)]
 
   sv = tf.train.Supervisor(logdir=FLAGS.logdir,
                            global_step=global_step.var,
@@ -945,7 +955,7 @@ def main(unused_argv):
     logging.info('pnn: %s', format_list(pnn.CheckSum()))
 
     for worker in workers[:FLAGS.num_workers]:
-      worker.Start(sv, sess)
+      worker.begin(sv, sess)
 
     while any(w.is_alive() for w in workers):
       time.sleep(1)
@@ -953,7 +963,7 @@ def main(unused_argv):
 
 class Worker(threading.Thread):
   def __init__(self, global_step, global_ac, pnn, summary_writer, task_id,
-               start_server):
+               is_ui_server):
     threading.Thread.__init__(self, name='worker-'+str(task_id))
     self.daemon = True
 
@@ -961,25 +971,30 @@ class Worker(threading.Thread):
     self.pnn = pnn
     self.summary_writer = summary_writer
     self.task_id = task_id
-    self.start_server = start_server
+    self.is_ui_server = is_ui_server
+    self.port = FLAGS.port + task_id
     self.ac = ACNeuralNetwork('ac-' + str(task_id), global_ac=global_ac)
 
-  def Start(self, sv, sess):
+  def begin(self, sv, sess):
+    port = self.port
+    if self.is_ui_server:
+      cmd = FLAGS.ui_server.split(' ')
+      assert port == 5001, port
+    else:
+      cmd = FLAGS.cc_server.split(' ') + [str(port)]
+    logging.info('running %s', ' '.join(cmd))
+    self.server = subprocess.Popen(cmd,
+            stdout=open('/tmp/galaxian-{}.stdout'.format(self.task_id), 'w'),
+            stderr=open('/tmp/galaxian-{}.stderr'.format(self.task_id), 'w'))
+
     self.sv = sv
     self.sess = sess
+
     self.start()
 
   def run(self):
-    port = FLAGS.port + self.task_id
-    logging.info('starting worker %d at port %d', self.task_id, port)
-
-    if self.start_server:
-      server = subprocess.Popen([FLAGS.server, FLAGS.rom, str(port)],
-              stdout=open('/tmp/galaxian-{}.stdout'.format(self.task_id), 'w'),
-              stderr=open('/tmp/galaxian-{}.stderr'.format(self.task_id), 'w'))
-      time.sleep(20)
-
-    game = self.game = Game(port, self.pnn)
+    time.sleep(10)  # wait for server startup
+    game = self.game = Game(self.port, self.pnn)
     game.Start()
     frame = game.Step('_')
 
@@ -998,6 +1013,9 @@ class Worker(threading.Thread):
     trainings = 0
     action_summary = [0] * OUTPUT_DIM
 
+    send_paths = FLAGS.send_paths and self.is_ui_server
+    send_value = FLAGS.send_value and self.is_ui_server
+
     sess = self.sess
     with sess.as_default():
       ac.Sync()
@@ -1008,10 +1026,11 @@ class Worker(threading.Thread):
         action = ACTIONS[action.argmax()]
         if FLAGS.search and is_dangerous(frame):
           action = self.plan(logits)
-        paths = frame.paths.values() if FLAGS.send_paths else []
+        paths = frame.paths.values() if send_paths else []
 
         # take action
-        frame1 = game.Step(action, paths=paths)
+        frame1 = game.Step(action,
+            paths=paths, value=value if send_value else None)
         experience.append((frame, frame1, value, state))
         frame = frame1
 
