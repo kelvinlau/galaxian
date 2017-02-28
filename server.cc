@@ -80,7 +80,8 @@ class Server {
     deque<int> episode_rewards;
 
     int step = 1;
-    RecvStart(&step);
+    int eval_mode = 0;
+    RecvStart(&step, &eval_mode);
     for (; ; ++step) {
       if (Random() < 0.01) {
         Emulator::Save(&reload);
@@ -88,7 +89,9 @@ class Server {
 
       if (GetLevel() > max_level && loaded_from_beginning) {
         max_level = GetLevel();
-        Emulator::Save(&beginning);
+        if (!eval_mode || max_level < 10) {
+          Emulator::Save(&beginning);
+        }
         LOG(INFO) << "Level " << max_level;
       }
 
@@ -122,7 +125,7 @@ class Server {
         CHECK_LE(length, 3600) << "Suspicious long episode: " << length
                                << " rewards: " << rewards;
       } else {
-        loaded_from_beginning = Random() < 0.5;
+        loaded_from_beginning = (eval_mode || Random() < 0.5);
         Emulator::Load(loaded_from_beginning ? &beginning : &reload);
         episode_rewards.push_back(rewards);
         if (episode_rewards.size() > 100) {
@@ -165,9 +168,10 @@ class Server {
     buffer_.pop_back();
   }
 
-  void RecvStart(int* step) {
+  void RecvStart(int* step, int* eval_mode) {
     RecvBuffer();
-    CHECK_EQ(sscanf(buffer_.c_str(), "galaxian:start %d", step), 1) << buffer_;
+    CHECK_EQ(sscanf(buffer_.c_str(), "galaxian:start %d %d", step), 2)
+        << buffer_;
 
     buffer_ = "ack";
     SendBuffer();

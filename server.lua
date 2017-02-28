@@ -134,7 +134,12 @@ function Start(client)
     emu.message(err)
     return
   end
+  local tokens = Split(line, ' ')
+  assert(#tokens == 3, tokens)
+  assert(tokens[1] == 'galaxian:start', tokens)
+  local eval_mode = tonumber(tokens[3]) == 1
   client:send("ack\n")
+  return eval_mode
 end
 
 ---- UI ----
@@ -236,7 +241,7 @@ local recent_games = {}
 local reward_sum = 0
 local max_level = 0
 
-Start(client)
+local eval_mode = Start(client)
 
 while true do
   if math.random() < 0.01 then
@@ -245,7 +250,9 @@ while true do
 
   if not human_play and GetLevel() > max_level and loaded_from_init then
     max_level = GetLevel();
-    savestate.save(INIT_STATE)
+    if not eval_mode or max_level < 10 then
+      savestate.save(INIT_STATE)
+    end
     emu.print('Level ' .. max_level)
   end
 
@@ -303,12 +310,11 @@ while true do
     max_score = math.max(max_score, reward_sum)
   else
     emu.print("Score: " .. g.score .. " rewards: " .. reward_sum)
-    if math.random() < 0.5 then
+    loaded_from_init = eval_mode or math.random() < 0.5
+    if loaded_from_init then
       savestate.load(INIT_STATE)
-      loaded_from_init = true
     else
       savestate.load(RELOAD_STATE)
-      loaded_from_init = false
     end
     reward_sum = 0
     recent_games = {}

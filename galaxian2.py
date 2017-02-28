@@ -32,6 +32,7 @@ FLAGS = flags.FLAGS
 flags.DEFINE_bool('debug', False, 'enable logging.debug')
 flags.DEFINE_bool('log_steps', False, 'log steps')
 flags.DEFINE_string('ui_tasks', '', 'tasks to start ui servers')
+flags.DEFINE_string('eval_tasks', '', 'tasks to start servers in eval mode')
 flags.DEFINE_string('ui_server', '../fceux-2.2.3-win32/fceux.exe -lua '
     'Z:\home\kelvinlau\galaxian\server.lua '
     'Z:\home\kelvinlau\galaxian\galaxian.nes',
@@ -414,9 +415,9 @@ class Game:
     self.rewards = 0
     self.scores = 0
 
-  def Start(self, seq=0):
+  def Start(self, seq=0, eval_mode=False):
     self._seq = seq
-    self._sock.send('galaxian:start %d\n' % (seq+1))
+    self._sock.send('galaxian:start %d %d\n' % (seq+1, 1 if eval_mode else 0))
     assert self._fin.readline().strip() == 'ack'
 
   def Step(self, action, paths=[], value=None):
@@ -933,9 +934,10 @@ def main(unused_argv):
     logging.info('  %s: %s', var.name, var.get_shape())
 
   ui_tasks = parse_ints(FLAGS.ui_tasks)
+  eval_tasks = parse_ints(FLAGS.eval_tasks)
   MAX_WORKERS = 16
-  workers = [
-      Worker(global_step, global_ac, pnn, summary_writer, i, i in ui_tasks)
+  workers = [Worker(global_step, global_ac, pnn, summary_writer, i,
+                    i in ui_tasks, i in eval_tasks)
       for i in xrange(MAX_WORKERS)]
 
   sv = tf.train.Supervisor(logdir=FLAGS.logdir,
@@ -966,7 +968,7 @@ def main(unused_argv):
 
 class Worker(threading.Thread):
   def __init__(self, global_step, global_ac, pnn, summary_writer, task_id,
-               is_ui_server):
+               is_ui_server, eval_mode):
     threading.Thread.__init__(self, name='worker-'+str(task_id))
     self.daemon = True
 
@@ -975,6 +977,7 @@ class Worker(threading.Thread):
     self.summary_writer = summary_writer
     self.task_id = task_id
     self.is_ui_server = is_ui_server
+    self.eval_mode = eval_mode
     self.port = FLAGS.port + task_id
     self.ac = ACNeuralNetwork('ac-' + str(task_id), global_ac=global_ac)
 
@@ -998,7 +1001,7 @@ class Worker(threading.Thread):
   def run(self):
     time.sleep(10)  # wait for server startup
     game = self.game = Game(self.port, self.pnn)
-    game.Start()
+    game.Start(eval_mode=self.eval_mode)
     frame = game.Step('_')
 
     ac = self.ac
