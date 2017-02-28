@@ -6,6 +6,7 @@ https://www.nervanasys.com/demystifying-deep-reinforcement-learning/
 https://medium.com/@awjuliani/simple-reinforcement-learning-with-tensorflow-part-4-deep-q-networks-and-beyond-8438a3e2b8df#.tithx7juq
 https://github.com/openai/universe-starter-agent/
 
+TODO: Display score in tensorboard.
 TODO: Model based, Dyna, Sarsa, TD search, Monte Carlo.
 """
 
@@ -37,7 +38,7 @@ flags.DEFINE_string('ui_server', '../fceux-2.2.3-win32/fceux.exe -lua '
     'Z:\home\kelvinlau\galaxian\galaxian.nes',
     'ui server command')
 flags.DEFINE_string('cc_server', './server ./galaxian.nes', 'cc server command')
-flags.DEFINE_string('logdir', 'logs/2.29', 'Supervisor logdir')
+flags.DEFINE_string('logdir', 'logs/2.30', 'Supervisor logdir')
 flags.DEFINE_integer('port', 5001, 'server port to conenct')
 flags.DEFINE_integer('num_workers', 1, 'num servers')
 flags.DEFINE_bool('search', False, 'enable searching')
@@ -53,13 +54,14 @@ NUM_STILL_ENEMIES = 10
 NUM_INCOMING_ENEMIES = 7
 WIDTH = 256
 HEIGHT = 240
-RAW_IMAGE = True
-if not RAW_IMAGE:
-  DX = 4
-  HMAP_WIDTH = 256 / DX
-  FOCUS = 16
-  INPUT_DIM = 3 + (2*FOCUS+3) + NUM_INCOMING_ENEMIES*5 + 2*HMAP_WIDTH
+
+DX = 4
+HMAP_WIDTH = 256 / DX
+FOCUS = 16
+DATA_SIZE = 3 + (2*FOCUS+3) + NUM_INCOMING_ENEMIES*5 + 2*HMAP_WIDTH
+
 PATH_LEN = 12
+
 ACTIONS = ['_', 'L', 'R', 'A', 'l', 'r']
 ACTION_ID = {ACTIONS[i]: i for i in xrange(len(ACTIONS))}
 OUTPUT_DIM = len(ACTIONS)
@@ -221,129 +223,128 @@ class Frame:
       bid = self.NextInt()
       self.bullets[bid] = self.NextPoint()
 
-    if not RAW_IMAGE:
-      self.data = []
+    self.data = []
 
-      # missile x, y
-      self.data.append((self.missile.x - galaxian.x) / 256.0)
-      self.data.append(self.missile.y / 200.0 if self.missile.y < 200 else 0)
-      logging.debug('missile %d,%d', self.missile.x, self.missile.y)
+    # missile x, y
+    self.data.append((self.missile.x - galaxian.x) / 256.0)
+    self.data.append(self.missile.y / 200.0 if self.missile.y < 200 else 0)
+    logging.debug('missile %d,%d', self.missile.x, self.missile.y)
 
-      # galaxian x
-      self.data.append(galaxian.x / 256.0)
+    # galaxian x
+    self.data.append(galaxian.x / 256.0)
 
-      # still enemies dx relative to galaxian in focus region, and vx.
-      smap = [0.] * (2*FOCUS)
-      x1 = galaxian.x - FOCUS
-      x2 = galaxian.x + FOCUS
-      sl = 0
-      sr = 0
-      for i in xrange(len(self.masks)):
-        mask = self.masks[i]
-        if mask:
-          ex = self.sdx + 16 * i
-          num = num_bits(mask)
-          for x in xrange(max(ex-4, x1), min(ex+4, x2)):
-            smap[x-x1] += num / 7.
-          if ex < x1:
-            sl = 1
-          if ex >= x2:
-            sr = 1
-      svx = 0
-      if prev_frames:
-        svx = sign(self.sdx - prev_frames[-1].sdx)
-      self.svx = svx
-      self.data += smap
-      self.data.append(sl)
-      self.data.append(sr)
-      self.data.append(svx)
-      logging.debug('smap [%s] %s %s %s', hmap_string(smap), sl, sr, svx)
+    # still enemies dx relative to galaxian in focus region, and vx.
+    smap = [0.] * (2*FOCUS)
+    x1 = galaxian.x - FOCUS
+    x2 = galaxian.x + FOCUS
+    sl = 0
+    sr = 0
+    for i in xrange(len(self.masks)):
+      mask = self.masks[i]
+      if mask:
+        ex = self.sdx + 16 * i
+        num = num_bits(mask)
+        for x in xrange(max(ex-4, x1), min(ex+4, x2)):
+          smap[x-x1] += num / 7.
+        if ex < x1:
+          sl = 1
+        if ex >= x2:
+          sr = 1
+    svx = 0
+    if prev_frames:
+      svx = sign(self.sdx - prev_frames[-1].sdx)
+    self.svx = svx
+    self.data += smap
+    self.data.append(sl)
+    self.data.append(sr)
+    self.data.append(svx)
+    logging.debug('smap [%s] %s %s %s', hmap_string(smap), sl, sr, svx)
 
-      # incoming enemies: dx, dy, type.
-      # TODO: index by eid?
-      ies = []
-      for eid, e in sorted(
-          self.incoming_enemies.items(), key = lambda p: p[1].y):
-        dx = (e.x - galaxian.x) / 256.0
-        dy = (e.y - galaxian.y) / 256.0
-        ies.append([dx, dy] + one_hot(3, enemy_type(e.row)))
-      for i in xrange(NUM_INCOMING_ENEMIES-len(ies)):
-        ies.append([1, 1, 0, 0, 0])
-      ies = sum(ies, [])
-      self.data.extend(ies)
+    # incoming enemies: dx, dy, type.
+    # TODO: index by eid?
+    ies = []
+    for eid, e in sorted(
+        self.incoming_enemies.items(), key = lambda p: p[1].y):
+      dx = (e.x - galaxian.x) / 256.0
+      dy = (e.y - galaxian.y) / 256.0
+      ies.append([dx, dy] + one_hot(3, enemy_type(e.row)))
+    for i in xrange(NUM_INCOMING_ENEMIES-len(ies)):
+      ies.append([1, 1, 0, 0, 0])
+    ies = sum(ies, [])
+    self.data.extend(ies)
 
-      # hit map
-      def ix(x):
-        return max(0, min(HMAP_WIDTH-1, (int(round(x))-galaxian.x+128)/DX))
-      # out-of-bound tiles have penality.
-      imap = [0. if ix(0) <= i <= ix(255) else 1. for i in range(HMAP_WIDTH)]
-      bmap = imap[:]
+    # hit map
+    def ix(x):
+      return max(0, min(HMAP_WIDTH-1, (int(round(x))-galaxian.x+128)/DX))
+    # out-of-bound tiles have penality.
+    imap = [0. if ix(0) <= i <= ix(255) else 1. for i in range(HMAP_WIDTH)]
+    bmap = imap[:]
 
-      # incoming enemy paths
-      self.paths = {}
-      y1 = galaxian.y-8
-      y2 = galaxian.y+8
-      pins_map = PathNeuralNetwork.EncodePathInputs(list(prev_frames)+[self])
-      pouts = pnn.Eval(pins_map.values())
-      self.paths = PathNeuralNetwork.DecodePathOutputs(
-          pouts, pins_map.keys(), self.incoming_enemies)
-      for eid, e in self.incoming_enemies.iteritems():
-        path = self.paths.get(eid)
-        if path is None: continue
-        for t, p in enumerate(path):
-          if y1 <= p.y <= y2:
-            imap[ix(p.x)] += max(0., 1-t/24.)
+    # incoming enemy paths
+    self.paths = {}
+    y1 = galaxian.y-8
+    y2 = galaxian.y+8
+    pins_map = PathNeuralNetwork.EncodePathInputs(list(prev_frames)+[self])
+    pouts = pnn.Eval(pins_map.values())
+    self.paths = PathNeuralNetwork.DecodePathOutputs(
+        pouts, pins_map.keys(), self.incoming_enemies)
+    for eid, e in self.incoming_enemies.iteritems():
+      path = self.paths.get(eid)
+      if path is None: continue
+      for t, p in enumerate(path):
+        if y1 <= p.y <= y2:
+          imap[ix(p.x)] += max(0., 1-t/24.)
 
-      # bullets
-      self.bv = {}
-      for eid, e in self.bullets.iteritems():
-        pe = None  # the furthest frame having this bullet
-        steps = 0
-        for pf in reversed(prev_frames):
-          if eid in pf.bullets:
-            pe = pf.bullets[eid]
-            steps += 1
-          else:
-            break
-        x1, x2, t = None, None, None
-        if pe and pe.y < e.y < y1:
-          x1 = int(round((e.x-pe.x)*1.0/(e.y-pe.y)*(y1-pe.y)+pe.x))
-          x2 = int(round((e.x-pe.x)*1.0/(e.y-pe.y)*(y2-pe.y)+pe.x))
-          if x1 > x2:
-            x1, x2 = x2, x1
-          t = (y1-e.y)*1.0/(e.y-pe.y)*steps
-        elif y1 <= e.y <= y2:
-          x1 = x2 = e.x
-          t = 0
-        if x1 is not None:
-          hit = max(0., 1.-t/12.)
-          for i in xrange(ix(x1), ix(x2)+1):
-            bmap[i] += hit
-        if pe:
-          self.bv[eid] = Point((e.x-pe.x)/steps, (e.y-pe.y)/steps)
+    # bullets
+    self.bv = {}
+    for eid, e in self.bullets.iteritems():
+      pe = None  # the furthest frame having this bullet
+      steps = 0
+      for pf in reversed(prev_frames):
+        if eid in pf.bullets:
+          pe = pf.bullets[eid]
+          steps += 1
         else:
-          self.bv[eid] = Point(0, 1)
+          break
+      x1, x2, t = None, None, None
+      if pe and pe.y < e.y < y1:
+        x1 = int(round((e.x-pe.x)*1.0/(e.y-pe.y)*(y1-pe.y)+pe.x))
+        x2 = int(round((e.x-pe.x)*1.0/(e.y-pe.y)*(y2-pe.y)+pe.x))
+        if x1 > x2:
+          x1, x2 = x2, x1
+        t = (y1-e.y)*1.0/(e.y-pe.y)*steps
+      elif y1 <= e.y <= y2:
+        x1 = x2 = e.x
+        t = 0
+      if x1 is not None:
+        hit = max(0., 1.-t/12.)
+        for i in xrange(ix(x1), ix(x2)+1):
+          bmap[i] += hit
+      if pe:
+        self.bv[eid] = Point((e.x-pe.x)/steps, (e.y-pe.y)/steps)
+      else:
+        self.bv[eid] = Point(0, 1)
 
-      self.data += imap
-      self.data += bmap
-      logging.debug('imap [%s]', hmap_string(imap))
-      logging.debug('bmap [%s]', hmap_string(bmap))
+    self.data += imap
+    self.data += bmap
+    logging.debug('imap [%s]', hmap_string(imap))
+    logging.debug('bmap [%s]', hmap_string(bmap))
 
-      assert len(self.data) == INPUT_DIM, \
-          '{} vs {}'.format(len(self.data), INPUT_DIM)
-      self.data = np.array(self.data)
-    else:
-      self.data = np.zeros((WIDTH, HEIGHT))
-      self.rect(galaxian, 16, 16)
-      if self.missile.y < 200:
-        self.rect(self.missile, 4, 8)
-      for e in self.still_enemies:
-        self.rect(e, 8, 8)
-      for e in self.incoming_enemies.values():
-        self.rect(e, 8, 8)
-      for b in self.bullets.values():
-        self.rect(b, 4, 8)
-      self.data = np.reshape(self.data, [WIDTH, HEIGHT, 1])
+    assert len(self.data) == DATA_SIZE, \
+        '{} vs {}'.format(len(self.data), DATA_SIZE)
+    self.data = np.array(self.data)
+
+    self.image = np.zeros((WIDTH, HEIGHT))
+    self.rect(galaxian, 16, 16)
+    if self.missile.y < 200:
+      self.rect(self.missile, 4, 8)
+    for e in self.still_enemies:
+      self.rect(e, 8, 8)
+    for e in self.incoming_enemies.values():
+      self.rect(e, 8, 8)
+    for b in self.bullets.values():
+      self.rect(b, 4, 8)
+    self.image = np.reshape(self.image, [WIDTH, HEIGHT, 1])
 
   def NextToken(self):
     self._idx += 1
@@ -364,10 +365,10 @@ class Frame:
     y2 = min(c.y + h, HEIGHT)
     if x1 >= x2 or y1 >= y2:
       return
-    self.data[x1:x2, y1:y2] += np.full((x2-x1, y2-y1,), v)
+    self.image[x1:x2, y1:y2] += np.full((x2-x1, y2-y1,), v)
 
   def CheckSum(self):
-    return np.sum(self.data)
+    return np.sum(self.data) + np.sum(self.image)
 
 
 def is_dangerous(frame):
@@ -597,24 +598,20 @@ class ACNeuralNetwork:
   def __init__(self, name, global_ac=None):
     with tf.variable_scope(name):
       # Input.
-      if not RAW_IMAGE:
-        x = self.input = tf.placeholder(tf.float32, [None, INPUT_DIM],
-            name='input')
-        x = tf.elu(linear(x, 64, 'l0'))
-        x = tf.elu(linear(x, 64, 'l1'))
-        LSTM_SIZE = 32
-      else:
-        x = self.input = tf.placeholder(tf.float32, [None, WIDTH, HEIGHT, 1],
-            name='input')
-        for i in xrange(4):
-          x = tf.nn.elu(conv2d(x, 32, 'c'+str(i), [3, 3], [2, 2]))
-        x = flatten(x)
-        LSTM_SIZE = 256
+      x = self.image = tf.placeholder(tf.float32, [None, WIDTH, HEIGHT, 1],
+          name='image')
+      for i in xrange(5):
+        x = tf.nn.elu(conv2d(x, 2**(i+2), 'c'+str(i), [3, 3], [2, 2]))
+      x = flatten(x)
+      self.data = tf.placeholder(tf.float32, [None, DATA_SIZE],
+          name='data')
+      x = tf.concat(1, [x, self.data])
 
       # Make batch size as time dimension.
       x = tf.expand_dims(x, [0])
 
       # LSTM.
+      LSTM_SIZE = 256
       lstm = tf.nn.rnn_cell.LSTMCell(LSTM_SIZE, state_is_tuple=True)
 
       c_init = np.zeros((1, lstm.state_size.c), np.float32)
@@ -627,7 +624,7 @@ class ACNeuralNetwork:
 
       lstm_outputs, lstm_state = tf.nn.dynamic_rnn(
           lstm, x, initial_state=tf.nn.rnn_cell.LSTMStateTuple(c_in, h_in),
-          sequence_length=tf.shape(self.input)[:1])
+          sequence_length=tf.shape(self.image)[:1])
       lstm_c, lstm_h = lstm_state
       self.state_out = [lstm_c, lstm_h]
 
@@ -639,7 +636,7 @@ class ACNeuralNetwork:
 
       self.var_list = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES,
           scope=name)
-      assert len(self.var_list) == (14 if RAW_IMAGE else 10), len(self.var_list)
+      assert len(self.var_list) == 16, len(self.var_list)
 
       if global_ac is not None:
         self.actual_action = tf.placeholder(tf.float32, [None, OUTPUT_DIM],
@@ -665,7 +662,7 @@ class ACNeuralNetwork:
         self.sync = tf.group(*[dst.assign(src)
           for dst, src in zip(self.var_list, global_ac.var_list)])
 
-        batch_size = tf.to_float(tf.shape(self.input)[0])
+        batch_size = tf.to_float(tf.shape(self.image)[0])
         summaries = [
           tf.summary.scalar("policy_loss", policy_loss / batch_size),
           tf.summary.scalar("value_loss", value_loss / batch_size),
@@ -683,7 +680,8 @@ class ACNeuralNetwork:
   def Eval(self, frame, state):
     ret = tf.get_default_session().run(
         [self.action, self.value] + self.state_out + [self.logits], {
-            self.input: [frame.data],
+            self.data: [frame.data],
+            self.image: [frame.image],
             self.state_in[0]: state[0],
             self.state_in[1]: state[1],
         })
@@ -696,7 +694,8 @@ class ACNeuralNetwork:
     _, last_frame, _, last_state = experience[-1]
     terminal = last_frame.terminal
     last_value = self.Eval(last_frame, last_state)[1] if not terminal else 0.
-    inputs = np.array([f.data for f, _, _, _ in experience])
+    data = np.array([f.data for f, _, _, _ in experience])
+    images = np.array([f.image for f, _, _, _ in experience])
     frames = [e[1] for e in experience]
     actions = np.array([one_hot(OUTPUT_DIM, f.action_id) for f in frames])
     rewards = np.array([f.reward for f in frames])
@@ -712,7 +711,8 @@ class ACNeuralNetwork:
     ops.append(self.optimizer)
 
     results = tf.get_default_session().run(ops, {
-      self.input: inputs,
+      self.data: data,
+      self.image: images,
       self.actual_action: actions,
       self.advantage: advantages,
       self.r: rs,
@@ -1087,10 +1087,10 @@ class Worker(threading.Thread):
           # testing
           if step % 10000 == 0 and pdata:
             p_test_cost, inputs, targets, outputs = self.pnn.Test(pdata[-5:])
-            logging.info(
-                'pnn test: cost: %s\n '
-                'inputs:\n%s\n targets:\n%s\n outputs:\n%s\n delta:\n%s',
-                p_test_cost, inputs, targets, outputs, outputs - targets)
+            logging.info('pnn test cost: %s', p_test_cost)
+            logging.debug('pnn test inputs:\n%s\n targets:\n%s\n '
+                'outputs:\n%s\n delta:\n%s',
+                inputs, targets, outputs, outputs - targets)
 
         # summary
         action_summary[frame.action_id] += 1
