@@ -6,7 +6,6 @@ https://www.nervanasys.com/demystifying-deep-reinforcement-learning/
 https://medium.com/@awjuliani/simple-reinforcement-learning-with-tensorflow-part-4-deep-q-networks-and-beyond-8438a3e2b8df#.tithx7juq
 https://github.com/openai/universe-starter-agent/
 
-TODO: Display score in tensorboard.
 TODO: Model based, Dyna, Sarsa, TD search, Monte Carlo.
 """
 
@@ -163,8 +162,8 @@ class Frame:
 
     self.seq = self.NextInt()
 
-    score = self.NextInt()
-    self.reward = math.sqrt(score/30.0)
+    self.score = self.NextInt()
+    self.reward = math.sqrt(self.score/30.0)
 
     self.terminal = self.NextInt()
 
@@ -413,6 +412,7 @@ class Game:
     self.last_frames = deque()
     self.length = 0
     self.rewards = 0
+    self.scores = 0
 
   def Start(self, seq=0):
     self._seq = seq
@@ -424,6 +424,7 @@ class Game:
       self.last_frames.clear()
       self.length = 0
       self.rewards = 0
+      self.scores = 0
 
     self._seq += 1
 
@@ -451,6 +452,7 @@ class Game:
       self.last_frames.popleft()
     self.length += 1
     self.rewards += frame.reward
+    self.scores += frame.score
 
     return frame
 
@@ -1100,9 +1102,9 @@ class Worker(threading.Thread):
 
         # reset on terminal
         if frame.terminal:
-          logging.info(
-              'task: %d steps: %9d episode length: %4d rewards: %6.2f',
-              self.task_id, step, game.length, game.rewards)
+          logging.info('task: %d steps: %9d episode length: %4d rewards: %6.2f '
+              'scores: %5d',
+              self.task_id, step, game.length, game.rewards, game.scores)
           if FLAGS.search:
             for f in list(game.last_frames)[-5:]:
               logging.info(
@@ -1110,9 +1112,9 @@ class Worker(threading.Thread):
                   f.galaxian, f.missile, f.bullets, f.incoming_enemies)
 
           summary = tf.Summary()
-          summary.value.add(
-              tag='game/rewards', simple_value=float(game.rewards))
-          summary.value.add(tag='game/length', simple_value=float(game.length))
+          summary.value.add(tag='game/rewards', simple_value=game.rewards)
+          summary.value.add(tag='game/scores', simple_value=game.scores)
+          summary.value.add(tag='game/length', simple_value=game.length)
           self.summary_writer.add_summary(summary, self.global_step.Eval())
 
           frame = game.Step('_')
