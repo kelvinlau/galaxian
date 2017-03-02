@@ -172,18 +172,18 @@ class Frame:
     self.action_id = ACTION_ID[self.action]
 
     # Penalty on holding the A button.
-    if prev_frames:
-      pv = prev_frames[-1]
-      if pv.missile.y < 200 and self.action in 'Alr':
-        self.reward -= 0.25
+    # if prev_frames:
+    #   pv = prev_frames[-1]
+    #   if pv.missile.y < 200 and self.action in 'Alr':
+    #     self.reward -= 0.25
 
     self.galaxian = galaxian = self.NextPoint()
 
     self.missile = self.NextPoint()
     # penalty on miss
     # XXX: this may break if frame skip setting is change (currently 5).
-    if self.missile.y <= 4:
-      self.reward -= 0.1
+    # if self.missile.y <= 4:
+    #   self.reward -= 0.1
 
     # still enemies
     self.sdx = self.NextInt()
