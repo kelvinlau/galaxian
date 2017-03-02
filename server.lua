@@ -250,7 +250,7 @@ while true do
 
   if not human_play and GetLevel() > max_level and loaded_from_init then
     max_level = GetLevel();
-    if not eval_mode or max_level < 10 then
+    if max_level < 10 then
       savestate.save(INIT_STATE)
     end
     emu.print('Level ' .. max_level)

@@ -89,7 +89,7 @@ class Server {
 
       if (GetLevel() > max_level && loaded_from_beginning) {
         max_level = GetLevel();
-        if (!eval_mode || max_level < 10) {
+        if (max_level < 10) {
           Emulator::Save(&beginning);
         }
         LOG(INFO) << "Level " << max_level;
