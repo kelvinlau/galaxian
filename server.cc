@@ -170,8 +170,10 @@ class Server {
 
   void RecvStart(int* step, int* eval_mode) {
     RecvBuffer();
-    CHECK_EQ(sscanf(buffer_.c_str(), "galaxian:start %d %d", step), 2)
-        << buffer_;
+    CHECK_EQ(
+        sscanf(buffer_.c_str(), "galaxian:start %d %d", step, eval_mode),
+        2)
+      << buffer_;
 
     buffer_ = "ack";
     SendBuffer();
