@@ -280,7 +280,7 @@ while true do
       control = joypad.get(1)
     end
     g = GetGame()
-    if IsDead() then
+    if IsDead() or g.lifes < 2 then
       reward = 0
       terminal = true
       break
