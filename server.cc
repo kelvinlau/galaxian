@@ -132,9 +132,9 @@ class Server {
           episode_rewards.pop_front();
         }
         LOG(INFO) << StringPrintf(
-            "Seq %d Score: %5d Rewards: %5d Max Level: %d Max rewards: %d "
-            "Avg: %7.2f Median: %5d",
-            seq, s.score, rewards, max_level, max_rewards,
+            "Seq %d Length: %4d Score: %5d Rewards: %5d Max Level: %d "
+            "Max rewards: %d Avg: %7.2f Median: %5d",
+            seq, length, s.score, rewards, max_level, max_rewards,
             Average(episode_rewards), Median(episode_rewards));
         prev_score = -1;
         rewards = 0;

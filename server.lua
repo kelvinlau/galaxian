@@ -144,9 +144,10 @@ end
 
 ---- UI ----
 
-function ShowScore(score, max_score)
+function ShowScore(score, max_score, avg_rewards)
   gui.drawtext(10, 10, "Score " .. score)
   gui.drawtext(80, 10, "Max Score " .. max_score)
+  gui.drawtext(150, 10, "Avg Score " .. avg_rewards)
 end
 
 function ShowValue(value)
@@ -240,6 +241,10 @@ local client = server:accept()
 local recent_games = {}
 local reward_sum = 0
 local max_level = 0
+local avg_rewards = 0
+local episode_rewards = {}
+local eidx = 1
+local length = 0
 
 local eval_mode = Start(client)
 
@@ -267,7 +272,7 @@ while true do
   for i = 1, 5 do
     recent_games[0] = GetGame()
     Show(recent_games)
-    ShowScore(reward_sum, max_score)
+    ShowScore(reward_sum, max_score, avg_rewards)
     ShowPaths(paths)
     ShowValue(value)
     if human_play and i == 1 then
@@ -308,14 +313,30 @@ while true do
   if not terminal then
     reward_sum = reward_sum + reward
     max_score = math.max(max_score, reward_sum)
+    length = length + 1
   else
-    emu.print("Score: " .. g.score .. " rewards: " .. reward_sum)
+    emu.print("Length: " .. length ..  " Score: " .. g.score ..
+        " Rewards: " .. reward_sum)
+
     loaded_from_init = eval_mode or math.random() < 0.5
     if loaded_from_init then
       savestate.load(INIT_STATE)
     else
       savestate.load(RELOAD_STATE)
     end
+
+    episode_rewards[eidx] = reward_sum
+    eidx = eidx + 1
+    if eidx > 20 then
+      eidx = 1
+    end
+    avg_rewards = 0
+    for i=1,#episode_rewards do
+      avg_rewards += episode_rewards[i]
+    end
+    avg_rewards = avg_rewards / #episode_rewards
+
+    length = 0
     reward_sum = 0
     recent_games = {}
   end
