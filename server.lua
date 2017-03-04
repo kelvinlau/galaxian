@@ -147,7 +147,7 @@ end
 function ShowScore(score, max_score, avg_rewards)
   gui.drawtext(10, 10, "Score " .. score)
   gui.drawtext(80, 10, "Max Score " .. max_score)
-  gui.drawtext(150, 10, "Avg Score " .. avg_rewards)
+  gui.drawtext(80, 20, "Avg Score " .. avg_rewards)
 end
 
 function ShowValue(value)
@@ -171,14 +171,26 @@ end
 emu.print("Running Galaxian server")
 
 Reset()
+
+loaded_from_init = true
 INIT_STATE = savestate.create(9)
 savestate.save(INIT_STATE)
 RELOAD_STATE = savestate.create(8)
 savestate.save(RELOAD_STATE)
+human_play = (arg == 'human')
+human_play_set_init = false
+if human_play then
+  savestate.registerload(function ()
+    if human_play_set_init then return end
+    human_play_set_init = true
+    savestate.save(INIT_STATE)
+  end)
+end
 
-loaded_from_init = true
-human_play = false
 max_score = 0
+avg_rewards = 0
+episode_rewards = {}
+eidx = 1
 
 -- Dialog.
 dialogs = dialogs + 1;
@@ -195,6 +207,9 @@ handles[dialogs] = iup.dialog{iup.vbox{
     action=
       function (self)
         max_score = 0
+        avg_rewards = 0
+        episode_rewards = {}
+        eidx = 1
       end
   },
   iup.button{
@@ -228,32 +243,34 @@ handles[dialogs] = iup.dialog{iup.vbox{
 handles[dialogs]:show();
 
 -- Socket.
-local socket = require("socket")
-local server = assert(socket.bind("*", 5001))
-local ip, port = server:getsockname()
-emu.print("localhost:" .. port)
-emu.message("localhost:" .. port)
-SkipFrames(60)
-local client = server:accept()
--- client:settimeout(1)
--- client:close()
+if not human_play then
+  socket = require("socket")
+  server = assert(socket.bind("*", 5001))
+  ip, port = server:getsockname()
+  emu.print("localhost:" .. port)
+  emu.message("localhost:" .. port)
+  SkipFrames(60)
+  client = server:accept()
+  -- client:settimeout(1)
+  -- client:close()
+end
 
 local recent_games = {}
 local reward_sum = 0
 local max_level = 0
-local avg_rewards = 0
-local episode_rewards = {}
-local eidx = 1
 local length = 0
 
-local eval_mode = Start(client)
+local eval_mode = true
+if client then
+  eval_mode = Start(client)
+end
 
 while true do
   if math.random() < 0.01 then
     savestate.save(RELOAD_STATE)
   end
 
-  if not human_play and GetLevel() > max_level and loaded_from_init then
+  if GetLevel() > max_level and loaded_from_init then
     max_level = GetLevel();
     if max_level < 10 then
       savestate.save(INIT_STATE)
@@ -261,9 +278,13 @@ while true do
     emu.print('Level ' .. max_level)
   end
 
-  local control = nil
+  local control = {}
   local seq = nil
-  control, seq, paths, value = Recv(client)
+  local paths = {}
+  local value = nil
+  if client then
+    control, seq, paths, value = Recv(client)
+  end
 
   local reward = 0
   local terminal = false
@@ -281,7 +302,7 @@ while true do
       joypad.set(1, control)
     end
     emu.frameadvance()
-    if human_play and i == 1 then
+    if human_play and i == 1 and client then
       control = joypad.get(1)
     end
     g = GetGame()
@@ -308,7 +329,9 @@ while true do
   if not terminal and g.score > recent_games[2].score then
     reward = g.score - recent_games[2].score
   end
-  Respond(client, seq, g, action, reward, terminal)
+  if client then
+    Respond(client, seq, g, action, reward, terminal)
+  end
 
   if not terminal then
     reward_sum = reward_sum + reward
@@ -327,12 +350,12 @@ while true do
 
     episode_rewards[eidx] = reward_sum
     eidx = eidx + 1
-    if eidx > 20 then
+    if eidx > 100 then
       eidx = 1
     end
     avg_rewards = 0
     for i=1,#episode_rewards do
-      avg_rewards += episode_rewards[i]
+      avg_rewards = avg_rewards + episode_rewards[i]
     end
     avg_rewards = avg_rewards / #episode_rewards
 
