@@ -47,6 +47,7 @@ flags.DEFINE_bool('train_pnn', False, 'train pnn')
 flags.DEFINE_bool('send_paths', False, 'send path to render by ui server')
 flags.DEFINE_bool('send_value', False, 'send value to render by ui server')
 flags.DEFINE_bool('verify_image', False, 'save image to verify input')
+flags.DEFINE_float('learning_rate', 1e-4, 'learning rate')
 
 
 # Game input/output.
@@ -659,8 +660,9 @@ class ACNeuralNetwork:
         grads = tf.gradients(self.loss, self.var_list)
         grads_clipped, _ = tf.clip_by_global_norm(grads, 1.0)
 
-        self.optimizer = tf.train.AdamOptimizer(1e-4).apply_gradients(
-            zip(grads_clipped, global_ac.var_list))
+        self.optimizer = \
+            tf.train.AdamOptimizer(FLAGS.learning_rate).apply_gradients(
+                zip(grads_clipped, global_ac.var_list))
 
         self.sync = tf.group(*[dst.assign(src)
           for dst, src in zip(self.var_list, global_ac.var_list)])
