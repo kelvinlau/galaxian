@@ -8,7 +8,6 @@ require("game")
 SHOW_AI_VISION = false
 SHOW_OBJECTS = false
 SHOW_PROJ = false
-SHOW_STILL_ENEMIES = false
 
 ---- Responding ----
 
@@ -217,7 +216,19 @@ handles[dialogs] = iup.dialog{iup.vbox{
     action=
       function (self)
         SHOW_AI_VISION = not SHOW_AI_VISION
+      end
+  },
+  iup.button{
+    title="Show objects",
+    action=
+      function (self)
         SHOW_OBJECTS = not SHOW_OBJECTS
+      end
+  },
+  iup.button{
+    title="Show projectiles",
+    action=
+      function (self)
         SHOW_PROJ = not SHOW_PROJ
       end
   },

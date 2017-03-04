@@ -267,17 +267,18 @@ function Show(recent_games, genome)
   if SHOW_OBJECTS then
     if SHOW_STILL_ENEMIES then
       for _, e in pairs(g.still_enemies) do
-        gui.drawbox(e.x - 4, e.y - 4, e.x + 4, e.y + 4, {0xFF, 0, 0, 0x80}, 'clear')
+        gui.drawbox(e.x - 6, e.y - 4, e.x + 6, e.y + 8, {0xFF, 0, 0, 0x80}, 'clear')
       end
     end
     for _, e in pairs(g.incoming_enemies) do
-      gui.drawbox(e.x - 4, e.y - 4, e.x + 4, e.y + 4, {0xFF, 0, 0, 0x80}, 'clear')
+      gui.drawbox(e.x - 6, e.y - 4, e.x + 6, e.y + 8, {0xFF, 0, 0, 0x80}, 'clear')
     end
     for _, b in pairs(g.bullets) do
-      gui.drawbox(b.x - 2, b.y - 4, b.x + 2, b.y + 4, {0xFF, 0xFF, 0, 0x80}, 'clear')
+      gui.drawbox(b.x - 2, b.y - 5, b.x + 2, b.y + 2, {0xFF, 0xFF, 0, 0x80}, 'clear')
     end
     if not SHOW_AI_VISION then
-      gui.drawbox(g.galaxian.x - 4, g.galaxian.y, g.galaxian.x + 4, g.galaxian.y + 8, 'green')
+      gui.drawbox(g.galaxian.x - 8, g.galaxian.y - 6, g.galaxian.x + 8, g.galaxian.y + 10, {0, 0xFF, 0, 0x80}, 'clear')
+      gui.drawbox(g.missile.x + 2, g.missile.y + 3, g.missile.x + 6, g.missile.y + 10, {0, 0xFF, 0, 0x80}, 'clear')
     end
   end
 
