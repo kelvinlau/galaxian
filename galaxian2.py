@@ -349,13 +349,20 @@ class Frame:
     # bullets
     self.bv = {}
     for eid, e in self.bullets.iteritems():
-      pf = prev_frames[-1]
-      if eid in pf.bullets:
-        pe = pf.bullets[eid]
-        v = Point(e.x-pe.x, e.y-pe.y)
+      ee = e
+      pe = None  # the furthest frame having this bullet
+      steps = 0
+      for pf in reversed(prev_frames):
+        if eid in pf.bullets and pf.bullets[eid].y < ee.y:
+          pe = pf.bullets[eid]
+          steps += 1
+        else:
+          break
+        ee = pe
+      if pe:
+        v = Point(1.*(e.x-pe.x)/steps, 1.*(e.y-pe.y)/steps)
       else:
-        pe = None
-        v = Point(0, 1)
+        v = Point(0, 10)
       self.bv[eid] = v
       x1, x2, t = None, None, None
       if pe and pe.y < e.y < y1:
@@ -363,7 +370,7 @@ class Frame:
         x2 = int(round(1.*v.x/v.y*(y2-pe.y)+pe.x))
         if x1 > x2:
           x1, x2 = x2, x1
-        t = 1.*(y1-e.y)/v.y
+        t = 1.*(y1-e.y)/v.y*steps
       elif y1 <= e.y <= y2:
         x1 = x2 = e.x
         t = 0
@@ -474,7 +481,6 @@ class Game:
     self.rewards = 0
     self.scores = 0
 
-    self.t_copy = 0
     self.t_sim = 0
 
   def Start(self, seq=0, eval_mode=False):
@@ -528,8 +534,6 @@ class Game:
 
     t = s.copy()
     t.seq += 1
-
-    self.t_copy += now()-start
 
     # still enemies' speed is 1/5.
     t.sdx += frame.svx
@@ -1207,7 +1211,6 @@ class Worker(threading.Thread):
 
   def search(self, nn_action, logits):
     start = now()
-    self.game.t_copy = 0
     self.game.t_sim = 0
 
     frame = self.frame = self.game.last_frames[-1]
@@ -1269,7 +1272,7 @@ class Worker(threading.Thread):
           tx = (hit.x-frame.galaxian.x)/FRAME_SKIP
           ts = t - abs(tx) - ty
           if ts >= 0:
-            # TODO: better score?
+            # TODO: More accurate difficulty.
             routes.append((abs(ty + pos.x-prev.x), tx, ts))
           prev = pos
       routes.sort()
@@ -1288,9 +1291,9 @@ class Worker(threading.Thread):
           rewards, actions = r, a
           stra = 'g'+str(i)
 
-    mcts_end = start + 8000
+    end = start + 8000
     for i in xrange(10):
-      if rewards > 0 or now() > mcts_end:
+      if rewards > 0 or now() > end:
         break
       r, a = self.mcts(s)
       if r > rewards:
@@ -1298,25 +1301,25 @@ class Worker(threading.Thread):
         stra = 'm'
 
     if rewards < 0:
-      self.last_actions = None
-      actions = nn_action
+      ret = nn_action
       stra = 'n'
+      self.last_actions = None
     else:
+      ret = actions[0]
       self.last_actions = actions
 
-    dur = now()-start
-
     if 1:
+      dur = now()-start
       logging.info(
           'search seq: %d gx: %3d my: %3d '
           'stra: %-2s rewards: %7.2f %1s nn_action: %s '
           'actions: %-11s cache size: %5d routes: %s greedy_rewards: %s '
-          'dur: %d t_copy: %d t_sim: %d',
+          'dur: %d t_sim: %d',
           frame.seq, frame.galaxian.x, frame.missile.y,
-          stra, rewards, 'o' if nn_action != actions[0] else '', nn_action,
+          stra, rewards, 'o' if nn_action != ret else '', nn_action,
           actions, len(self.cache), routes, greedy_rewards,
-          dur, self.game.t_copy, self.game.t_sim)
-    return actions[0]
+          dur, self.game.t_sim)
+    return ret
 
   def dfs(self, last_action, s, forward_actions=None, next_candidates=None):
     dep = s.seq - self.frame.seq
