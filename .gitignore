@@ -9,3 +9,4 @@ server
 auxlib.lua
 logs/*
 *.jpg
+debug.py

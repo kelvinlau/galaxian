@@ -98,6 +98,10 @@ def rehash(x, y):
   return (x*13 + y) % (2**64)
 
 
+def iround(x):
+  return x if isinstance(x, int) else round(x, 1)
+
+
 class Point:
   def __init__(self, x, y):
     self.x = x
@@ -107,10 +111,10 @@ class Point:
     return rehash(hash(self.x), hash(self.y))
 
   def __repr__(self):
-    return '{},{}'.format(self.x, self.y)
+    return '{},{}'.format(iround(self.x), iround(self.y))
 
   def __str__(self):
-    return '{},{}'.format(self.x, self.y)
+    return repr(self)
 
   def __add__(self, other):
     return Point(self.x+other.x, self.y+other.y)
@@ -438,7 +442,7 @@ def is_dangerous(frame):
 class SFrame:
   def __init__(self, src=None):
     if isinstance(src, Frame):
-      self.galaxian = Rect(src.galaxian + Point(0, -5), 6, 16)
+      self.galaxian = Rect(src.galaxian + Point(0, -5), 7, 16)
       self.missile = Rect(src.missile + Point(4, 5), 0, 4)
       self.sdx = src.sdx
       self.incoming_enemies = {i: Rect(e + Point(0, -3), 5, 11)
@@ -558,10 +562,10 @@ class Game:
         t.missile.x = t.galaxian.x
 
       for eid, e in t.bullets.iteritems():
-        se = s.bullets[eid]
+        fe = frame.bullets[eid]
         v = frame.bv[eid]
-        e.x = int(round(se.x + v.x * i / FRAME_SKIP))
-        e.y = int(round(se.y + v.y * i / FRAME_SKIP))
+        e.x = int(round(fe.x + v.x/FRAME_SKIP*(FRAME_SKIP*dep+i)))
+        e.y = int(round(fe.y + v.y/FRAME_SKIP*(FRAME_SKIP*dep+i)))
 
       for eid, e in t.incoming_enemies.iteritems():
         se = s.incoming_enemies[eid]
@@ -1249,11 +1253,11 @@ class Worker(threading.Thread):
         stra = 's'
 
     # TODO: do this if missile if fired too.
-    routes = None
-    greedy_rewards = None
-    if False and s.missile.y >= MISSILE_INIT_Y and rewards <= 1:
-      routes = []
-      greedy_rewards = []
+    groutes = None
+    grewards = None
+    if s.missile.y >= MISSILE_INIT_Y and rewards <= 1:
+      groutes = []
+      grewards = []
       for eid, e in s.incoming_enemies.iteritems():
         path = frame.paths.get(eid)
         if path is None:
@@ -1261,32 +1265,37 @@ class Worker(threading.Thread):
         prev = e
         for t in xrange(1, Worker.MAX_DEPTH+1):
           pos = path[t-1]
+          pos = Rect(pos+Point(0, -3), 5, 11)
           MISSILE_MIN_HIT = MISSILE_INIT_Y + (FRAME_SKIP-1) * \
               MISSILE_FRAME_SPEED
+          # TODO: Count hits between hits too.
           hit = Point(
-              nearest_multiple(frame.galaxian.x, FRAME_SKIP, pos.x),
+              nearest_multiple(s.missile.x, FRAME_SKIP, pos.x),
               nearest_multiple(MISSILE_MIN_HIT, MISSILE_STEP_SPEED, pos.y))
-          if hit.y > MISSILE_MIN_HIT or not intersect(hit, pos):
+          hit = Rect(hit, 0, 4)
+          if hit.y > MISSILE_MIN_HIT or not intersected(hit, pos):
             continue
           ty = (MISSILE_INIT_Y+MISSILE_FRAME_SPEED-hit.y)/MISSILE_STEP_SPEED
           tx = (hit.x-frame.galaxian.x)/FRAME_SKIP
           ts = t - abs(tx) - ty
-          if ts >= 0:
-            # TODO: More accurate difficulty.
-            routes.append((abs(ty + pos.x-prev.x), tx, ts))
+          if ts < 0:
+            continue
+          # TODO: More accurate difficulty.
+          difficulty = ty + abs(pos.x-prev.x)
+          forward_actions = ''
+          for a, t in [('R' if tx > 0 else 'L', abs(tx)), ('_', ts)]:
+            for i in xrange(t):
+              forward_actions += a
+          groutes.append((difficulty, forward_actions))
           prev = pos
-      routes.sort()
-      routes = routes[:4]
-      for i, (_, tx, ts) in enumerate(routes):
+      groutes.sort()
+      groutes = groutes[:4]
+      for i, (_, forward_actions) in enumerate(groutes):
         if rewards > 1:
           break
-        forward_actions = ''
-        for a, t in [('R' if tx > 0 else 'L', abs(tx)), ('_', ts)]:
-          for i in xrange(t):
-            forward_actions += a
         r, a = self.dfs(frame.action, s, forward_actions=forward_actions,
                         next_candidates='Alr')
-        greedy_rewards.append(r)
+        grewards.append(r)
         if r >= rewards:
           rewards, actions = r, a
           stra = 'g'+str(i)
@@ -1308,16 +1317,16 @@ class Worker(threading.Thread):
       ret = actions[0]
       self.last_actions = actions
 
-    if 1:
+    if 0:
       dur = now()-start
       logging.info(
           'search seq: %d gx: %3d my: %3d '
           'stra: %-2s rewards: %7.2f %1s nn_action: %s '
-          'actions: %-11s cache size: %5d routes: %s greedy_rewards: %s '
+          'actions: %-11s cache size: %5d groutes: %s grewards: %s '
           'dur: %d t_sim: %d',
           frame.seq, frame.galaxian.x, frame.missile.y,
           stra, rewards, 'o' if nn_action != ret else '', nn_action,
-          actions, len(self.cache), routes, greedy_rewards,
+          actions, len(self.cache), groutes, grewards,
           dur, self.game.t_sim)
     return ret
 
