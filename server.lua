@@ -115,13 +115,17 @@ function Recv(client)
     end
   end
 
-  local value = nil
-  if i <= #result and result[i] == 'value' then
-    value = result[i+1]
-    i = i + 2
+  local info = nil
+  if i <= #result and result[i] == 'info' then
+    i = i + 1
+    info = ''
+    while i <= #result do
+      info = info .. ' ' .. result[i]
+      i = i + 1
+    end
   end
 
-  return ctrl, seq, paths, value
+  return ctrl, seq, paths, info
 end
 
 ---- start handshake ----
@@ -149,11 +153,11 @@ function ShowScore(score, max_score, avg_rewards)
   gui.drawtext(80, 20, "Avg Score " .. avg_rewards)
 end
 
-function ShowValue(value)
-  if value == nil then
+function ShowInfo(info)
+  if info == nil then
     return
   end
-  gui.drawtext(10, 20, "Value " .. value)
+  gui.drawtext(10, 20, info)
 end
 
 function ShowPaths(paths)
@@ -292,9 +296,9 @@ while true do
   local control = {}
   local seq = nil
   local paths = {}
-  local value = nil
+  local info = nil
   if client then
-    control, seq, paths, value = Recv(client)
+    control, seq, paths, info = Recv(client)
   end
 
   local reward = 0
@@ -306,7 +310,7 @@ while true do
     Show(recent_games)
     ShowScore(reward_sum, max_score, avg_rewards)
     ShowPaths(paths)
-    ShowValue(value)
+    ShowInfo(info)
     if human_play and i == 1 then
       joypad.set(1, {})
     else

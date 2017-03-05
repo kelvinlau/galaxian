@@ -7,6 +7,10 @@ https://medium.com/@awjuliani/simple-reinforcement-learning-with-tensorflow-part
 https://github.com/openai/universe-starter-agent/
 
 TODO: Model based, Dyna, Sarsa, TD search, Monte Carlo.
+TODO: Fix pixels.
+TODO: Lower learning rate.
+TODO: 1 more fc layer.
+TODO: Add paths into image?
 """
 
 from __future__ import print_function
@@ -19,7 +23,6 @@ import socket
 import subprocess
 import logging
 import threading
-import copy
 import scipy.signal
 import scipy.misc
 import numpy as np
@@ -50,11 +53,16 @@ flags.DEFINE_bool('verify_image', False, 'save image to verify input')
 flags.DEFINE_float('learning_rate', 1e-4, 'learning rate')
 
 
-# Game input/output.
+# Game constants.
 NUM_STILL_ENEMIES = 10
 NUM_INCOMING_ENEMIES = 7
 WIDTH = 256
 HEIGHT = 240
+FRAME_SKIP = 5
+GAP = 22
+MISSILE_INIT_Y = 205
+MISSILE_FRAME_SPEED = 4
+MISSILE_STEP_SPEED = 20
 
 DX = 4
 HMAP_WIDTH = 256 / DX
@@ -68,16 +76,20 @@ ACTION_ID = {ACTIONS[i]: i for i in xrange(len(ACTIONS))}
 OUTPUT_DIM = len(ACTIONS)
 
 
+def now():
+  return int(time.time()*1e6)
+
+
 class Timer:
   def __init__(self, name):
     self.name = name
 
   def __enter__(self):
-    self.start = int(time.time() * 1e6)
+    self.start = now()
     return self
 
   def __exit__(self, *args):
-    self.end = int(time.time() * 1e6)
+    self.end = now()
     self.interval = self.end - self.start
     print(self.name, self.interval, self.start, self.end)
 
@@ -100,9 +112,45 @@ class Point:
   def __str__(self):
     return '{},{}'.format(self.x, self.y)
 
+  def __add__(self, other):
+    return Point(self.x+other.x, self.y+other.y)
 
-def dist(a, b):
-  return max(abs(a.x - b.x), abs(a.y - b.y))
+
+class Rect(object):
+  def __init__(self, o, w, h):
+    self.x = o.x
+    self.y = o.y
+    self.w = w
+    self.h = h
+
+  @property
+  def x1(self):
+    return self.x - self.w
+
+  @property
+  def x2(self):
+    return self.x + self.w
+
+  @property
+  def y1(self):
+    return self.y
+
+  @property
+  def y2(self):
+    return self.y + self.h - 1
+
+  def __repr__(self):
+    return '{}-{},{}-{}'.format(self.x1, self.x2, self.y1, self.y2)
+
+  def __str__(self):
+    return repr(self)
+
+  def copy(self):
+    return Rect(Point(self.x, self.y), self.w, self.h)
+
+
+def intersected(a, b):
+  return not(a.x2 < b.x1 or b.x2 < a.x1) and not(a.y2 < b.y1 or b.y2 < a.y1)
 
 
 def one_hot(n, i):
@@ -205,11 +253,13 @@ class Frame:
     assert len(self.still_enemies) <= 48, len(self.still_enemies)
 
     self.incoming_enemies = {}
+    self.et = {}
     for i in xrange(self.NextInt()):
       eid = self.NextInt()
       e = self.NextPoint()
-      e.row = self.NextInt()
+      row = self.NextInt()
       self.incoming_enemies[eid] = e
+      self.et[eid] = enemy_type(row)
     self.dead = {}
     if prev_frames:
       pf = prev_frames[-1]
@@ -268,7 +318,7 @@ class Frame:
         self.incoming_enemies.items(), key = lambda p: p[1].y):
       dx = (e.x - galaxian.x) / 256.0
       dy = (e.y - galaxian.y) / 256.0
-      ies.append([dx, dy] + one_hot(3, enemy_type(e.row)))
+      ies.append([dx, dy] + one_hot(3, self.et[eid]))
     for i in xrange(NUM_INCOMING_ENEMIES-len(ies)):
       ies.append([1, 1, 0, 0, 0])
     ies = sum(ies, [])
@@ -299,21 +349,21 @@ class Frame:
     # bullets
     self.bv = {}
     for eid, e in self.bullets.iteritems():
-      pe = None  # the furthest frame having this bullet
-      steps = 0
-      for pf in reversed(prev_frames):
-        if eid in pf.bullets:
-          pe = pf.bullets[eid]
-          steps += 1
-        else:
-          break
+      pf = prev_frames[-1]
+      if eid in pf.bullets:
+        pe = pf.bullets[eid]
+        v = Point(e.x-pe.x, e.y-pe.y)
+      else:
+        pe = None
+        v = Point(0, 1)
+      self.bv[eid] = v
       x1, x2, t = None, None, None
       if pe and pe.y < e.y < y1:
-        x1 = int(round((e.x-pe.x)*1.0/(e.y-pe.y)*(y1-pe.y)+pe.x))
-        x2 = int(round((e.x-pe.x)*1.0/(e.y-pe.y)*(y2-pe.y)+pe.x))
+        x1 = int(round(1.*v.x/v.y*(y1-pe.y)+pe.x))
+        x2 = int(round(1.*v.x/v.y*(y2-pe.y)+pe.x))
         if x1 > x2:
           x1, x2 = x2, x1
-        t = (y1-e.y)*1.0/(e.y-pe.y)*steps
+        t = 1.*(y1-e.y)/v.y
       elif y1 <= e.y <= y2:
         x1 = x2 = e.x
         t = 0
@@ -321,10 +371,6 @@ class Frame:
         hit = max(0., 1.-t/12.)
         for i in xrange(ix(x1), ix(x2)+1):
           bmap[i] += hit
-      if pe:
-        self.bv[eid] = Point((e.x-pe.x)/steps, (e.y-pe.y)/steps)
-      else:
-        self.bv[eid] = Point(0, 1)
 
     self.data += imap
     self.data += bmap
@@ -383,16 +429,25 @@ def is_dangerous(frame):
 
 
 class SFrame:
-  def __init__(self, src):
-    assert isinstance(src, Frame)
-    self.galaxian = src.galaxian
-    self.missile = src.missile
-    self.sdx = src.sdx
-    self.svx = src.svx
-    self.masks = src.masks
-    self.incoming_enemies = src.incoming_enemies
-    self.bullets = src.bullets
-    self.seq = src.seq
+  def __init__(self, src=None):
+    if isinstance(src, Frame):
+      self.galaxian = Rect(src.galaxian + Point(0, -5), 6, 16)
+      self.missile = Rect(src.missile + Point(4, 5), 0, 4)
+      self.sdx = src.sdx
+      self.incoming_enemies = {i: Rect(e + Point(0, -3), 5, 11)
+          for i, e in src.incoming_enemies.iteritems()}
+      self.bullets = {i: Rect(e + Point(0, -3), 0, 4)
+          for i, e in src.bullets.iteritems()}
+      self.seq = src.seq
+    else:
+      assert isinstance(src, SFrame)
+      self.galaxian = src.galaxian.copy()
+      self.missile = src.missile.copy()
+      self.sdx = src.sdx
+      self.incoming_enemies = {
+          i: e.copy() for i, e in src.incoming_enemies.iteritems()}
+      self.bullets = {i: e.copy() for i, e in src.bullets.iteritems()}
+      self.seq = src.seq
     self.rewards = 0
 
   def __hash__(self):
@@ -402,6 +457,9 @@ class SFrame:
     for eid in self.incoming_enemies:
       h = rehash(h, hash(eid))
     return h
+
+  def copy(self):
+    return SFrame(self)
 
 
 class Game:
@@ -416,12 +474,15 @@ class Game:
     self.rewards = 0
     self.scores = 0
 
+    self.t_copy = 0
+    self.t_sim = 0
+
   def Start(self, seq=0, eval_mode=False):
     self._seq = seq
     self._sock.send('galaxian:start %d %d\n' % (seq+1, 1 if eval_mode else 0))
     assert self._fin.readline().strip() == 'ack'
 
-  def Step(self, action, paths=[], value=None):
+  def Step(self, action, paths=[], info=''):
     if self.last_frames and self.last_frames[-1].terminal:
       self.last_frames.clear()
       self.length = 0
@@ -437,8 +498,8 @@ class Game:
         for p in path:
           msg += ' ' + str(int(p.x))
           msg += ' ' + str(int(p.y))
-    if value is not None:
-      msg += ' value ' + str(value)
+    if info:
+      msg += ' info ' + info
     logging.debug('Step %s', msg)
     self._sock.send(msg + '\n')
 
@@ -459,35 +520,37 @@ class Game:
     return frame
 
   def Simulate(self, s, action):
-    FRAME_SKIP = 5
-
     frame = self.last_frames[-1]
     dep = s.seq - frame.seq
     decay = 0.99**dep
 
-    t = copy.deepcopy(s)
+    start = now()
+
+    t = s.copy()
     t.seq += 1
 
+    self.t_copy += now()-start
+
     # still enemies' speed is 1/5.
-    t.sdx += t.svx
+    t.sdx += frame.svx
 
     fired = 0
     # TODO: simulate 5 frames altogether?
     for i in xrange(1, FRAME_SKIP+1):
       if action in ['L', 'l']:
-        t.galaxian.x = max(t.galaxian.x - 1, 22)
+        t.galaxian.x = max(t.galaxian.x - 1, GAP)
       elif action in ['R', 'r']:
-        t.galaxian.x = min(t.galaxian.x + 1, WIDTH-22)
+        t.galaxian.x = min(t.galaxian.x + 1, WIDTH-GAP)
 
-      if t.missile.y < 200 or fired:
-        t.missile.y -= 4
+      if t.missile.y < MISSILE_INIT_Y or fired:
+        t.missile.y -= MISSILE_FRAME_SPEED
         if t.missile.y < 0:
-          t.missile.y = 200
+          t.missile.y = MISSILE_INIT_Y
         fired = 0
       elif action in ['A', 'l', 'r'] and i == 1:
         fired = 1
 
-      if t.missile.y >= 200:
+      if t.missile.y >= MISSILE_INIT_Y:
         t.missile.x = t.galaxian.x
 
       for eid, e in t.bullets.iteritems():
@@ -507,35 +570,38 @@ class Game:
         e.y = int(round(se.y + (te.y - se.y) * i / FRAME_SKIP))
 
       for b in t.bullets.values():
-        if dist(b, t.galaxian) <= 8:
+        if intersected(b, t.galaxian):
           t.rewards = -100 * decay
           return t
 
       for e in t.incoming_enemies.values():
-        if dist(e, t.galaxian) <= 12:
+        if intersected(e, t.galaxian):
           t.rewards = -100 * decay
           return t
       
       hits = 0
       if t.missile <= 112:
-        for i, mask in enumerate(t.masks):
+        for i, mask in enumerate(frame.masks):
           if mask > 0:
             e = Point(t.sdx + 16 * i, 108 - 12 * low_bit(mask))
-            if dist(e, t.missile) < 4:
+            er = Rect(e + Point(0, -3), 5, 11)
+            if intersected(e, t.missile):
               hits += 1
               t.rewards += 1
               break
         
-      if t.missile.y < 200:
+      if t.missile.y < MISSILE_INIT_Y:
         for eid, e in t.incoming_enemies.items():
-          if dist(e, t.missile) < 4:
-            t.rewards += (enemy_type(e.row) + 2)
+          if intersected(e, t.missile):
+            t.rewards += (frame.et[eid] + 2)
             del t.incoming_enemies[eid]
             hits += 1
 
       if hits:
-        t.missile.y = 200
+        t.missile.y = MISSILE_INIT_Y
         t.missile.x = t.galaxian.x
+
+    self.t_sim += now()-start
 
     return t
 
@@ -791,7 +857,7 @@ class PathNeuralNetwork:
         continue
       dx = e.x - f.galaxian.x
       coor = [dx, vx, vy]  # TODO: Add dy.
-      coor += one_hot(3, enemy_type(e.row))
+      coor += one_hot(3, f.et[eid])
       pin.append(coor)
       pe = e
     if not pin:
@@ -955,7 +1021,8 @@ def main(unused_argv):
 
   config = tf.ConfigProto(
       intra_op_parallelism_threads=FLAGS.num_workers,
-      log_device_placement=False)
+      log_device_placement=False,
+      gpu_options=tf.GPUOptions(allow_growth=True))
 
   with sv.managed_session(config=config) as sess, sess.as_default():
     logging.info('ac: %s', format_list(global_ac.CheckSum()))
@@ -982,6 +1049,8 @@ class Worker(threading.Thread):
     self.eval_mode = eval_mode
     self.port = FLAGS.port + task_id
     self.ac = ACNeuralNetwork('ac-' + str(task_id), global_ac=global_ac)
+
+    self.last_actions = None
 
   def begin(self, sv, sess):
     port = self.port
@@ -1029,24 +1098,32 @@ class Worker(threading.Thread):
       ac.Sync()
 
       while not self.sv.should_stop():
+        start = now()
+
         # eval action
-        action, value, state, logits = ac.Eval(frame, state)
-        action = ACTIONS[action.argmax()]
-        if FLAGS.search and is_dangerous(frame):
-          action = self.plan(logits)
+        action_prob, value, state, logits = ac.Eval(frame, state)
+        nn_action = ACTIONS[action_prob.argmax()]
+        eval_dur = now() - start
+        action = self.search(nn_action, logits)
         paths = frame.paths.values() if send_paths else []
 
         # take action
-        frame1 = game.Step(action,
-            paths=paths, value=value if send_value else None)
+        info = ''
+        if send_value:
+          info = 'v=' + str(value)
+        if nn_action != action:
+          info += ' o'
+        frame1 = game.Step(action, paths=paths, info=info)
         experience.append((frame, frame1, value, state))
         frame = frame1
 
         step += 1
+        step_dur = now() - start
         logging.log(lvl,
-            "Step %d value: %7.3f logits: %s action: %s reward: %5.2f",
+            "Step %d value: %7.3f logits: %s action: %s reward: %5.2f "
+            "eval_dur: %d step_dur: %d",
             step, value, format_list(logits, fmt='%7.3f'), frame.action,
-            frame.reward)
+            frame.reward, eval_dur, step_dur)
 
         if FLAGS.verify_image and step % 100 == 0 and self.task_id == 0:
           scipy.misc.imsave('image.jpg',
@@ -1111,10 +1188,11 @@ class Worker(threading.Thread):
               'scores: %5d',
               self.task_id, step, game.length, game.rewards, game.scores)
           if FLAGS.search:
-            for f in list(game.last_frames)[-5:]:
+            for f in list(game.last_frames)[-10:]:
               logging.info(
-                  '  galaxian:%s missile:%s bullets:%s incoming_enemies:%s',
-                  f.galaxian, f.missile, f.bullets, f.incoming_enemies)
+                  '  galaxian:%s missile:%s bullets:%s bv:%s '
+                  'incoming_enemies:%s',
+                  f.galaxian, f.missile, f.bullets, f.bv, f.incoming_enemies)
 
           summary = tf.Summary()
           summary.value.add(tag='game/rewards', simple_value=game.rewards)
@@ -1127,8 +1205,16 @@ class Worker(threading.Thread):
 
   MAX_DEPTH = 8
 
-  def plan(self, logits):
-    self.frame = frame = self.game.last_frames[-1]
+  def search(self, nn_action, logits):
+    start = now()
+    self.game.t_copy = 0
+    self.game.t_sim = 0
+
+    frame = self.frame = self.game.last_frames[-1]
+
+    if not (FLAGS.search and is_dangerous(frame)):
+      self.last_actions = None
+      return nn_action
 
     logits = logits.copy()
     bonus_actions = ''
@@ -1137,20 +1223,34 @@ class Worker(threading.Thread):
     elif frame.galaxian.x > 256-50:
       bonus_actions += 'Ll'
     for a in bonus_actions:
-      logits[ACTION_ID[a]] += 10.0
+      logits[ACTION_ID[a]] += 1.0
+    logits -= np.max(logits)
     self.logits = logits
 
     s = SFrame(frame)
     self.cache = {}
-    rewards, actions = self.search(frame.action, s)
-    stra = 's'
+
+    rewards, actions = self.dfs(frame.action, s, forward_actions=nn_action)
+    stra = 'n'
+
+    if self.last_actions and rewards < 0:
+      r, a = self.dfs(frame.action, s, forward_actions=self.last_actions[1:])
+      if r > rewards:
+        rewards, actions = r, a
+        stra = 'c'
+
+    if rewards < 0:
+      r, a = self.dfs(frame.action, s)
+      if r > rewards:
+        rewards, actions = r, a
+        stra = 's'
 
     # TODO: do this if missile if fired too.
     routes = None
-    grewards = None
-    if s.missile.y >= 200 and rewards <= 1:
+    greedy_rewards = None
+    if False and s.missile.y >= MISSILE_INIT_Y and rewards <= 1:
       routes = []
-      grewards = []
+      greedy_rewards = []
       for eid, e in s.incoming_enemies.iteritems():
         path = frame.paths.get(eid)
         if path is None:
@@ -1158,44 +1258,67 @@ class Worker(threading.Thread):
         prev = e
         for t in xrange(1, Worker.MAX_DEPTH+1):
           pos = path[t-1]
+          MISSILE_MIN_HIT = MISSILE_INIT_Y + (FRAME_SKIP-1) * \
+              MISSILE_FRAME_SPEED
           hit = Point(
-              nearest_multiple(frame.galaxian.x, 5, pos.x),
-              nearest_multiple(184, 20, pos.y))
-          if hit.y < 184 or dist(hit, pos) >= 4:
+              nearest_multiple(frame.galaxian.x, FRAME_SKIP, pos.x),
+              nearest_multiple(MISSILE_MIN_HIT, MISSILE_STEP_SPEED, pos.y))
+          if hit.y > MISSILE_MIN_HIT or not intersect(hit, pos):
             continue
-          ty = (204-hit.y)/20
-          tx = (hit.x-frame.galaxian.x)/5
+          ty = (MISSILE_INIT_Y+MISSILE_FRAME_SPEED-hit.y)/MISSILE_STEP_SPEED
+          tx = (hit.x-frame.galaxian.x)/FRAME_SKIP
           ts = t - abs(tx) - ty
           if ts >= 0:
-            # TODO: add ty to score?
-            routes.append((abs(pos.x-prev.x), tx, ts))
+            # TODO: better score?
+            routes.append((abs(ty + pos.x-prev.x), tx, ts))
           prev = pos
       routes.sort()
       routes = routes[:4]
       for i, (_, tx, ts) in enumerate(routes):
         if rewards > 1:
           break
-        r, a = self.greedy(s, tx, ts)
-        grewards.append(r)
+        forward_actions = ''
+        for a, t in [('R' if tx > 0 else 'L', abs(tx)), ('_', ts)]:
+          for i in xrange(t):
+            forward_actions += a
+        r, a = self.dfs(frame.action, s, forward_actions=forward_actions,
+                        next_candidates='Alr')
+        greedy_rewards.append(r)
         if r >= rewards:
           rewards, actions = r, a
           stra = 'g'+str(i)
 
+    mcts_end = start + 8000
     for i in xrange(10):
-      if rewards > 0:
+      if rewards > 0 or now() > mcts_end:
         break
       r, a = self.mcts(s)
       if r > rewards:
         rewards, actions = r, a
         stra = 'm'
 
-    logging.info('search seq: %d gx: %3d my: %3d '
-        'stra: %-2s rewards: %7.2f actions: %-11s cache size: %5d routes: %s grewards: %s',
-        frame.seq, frame.galaxian.x, frame.missile.y,
-        stra, rewards, actions, len(self.cache), routes, grewards)
+    if rewards < 0:
+      self.last_actions = None
+      actions = nn_action
+      stra = 'n'
+    else:
+      self.last_actions = actions
+
+    dur = now()-start
+
+    if 1:
+      logging.info(
+          'search seq: %d gx: %3d my: %3d '
+          'stra: %-2s rewards: %7.2f %1s nn_action: %s '
+          'actions: %-11s cache size: %5d routes: %s greedy_rewards: %s '
+          'dur: %d t_copy: %d t_sim: %d',
+          frame.seq, frame.galaxian.x, frame.missile.y,
+          stra, rewards, 'o' if nn_action != actions[0] else '', nn_action,
+          actions, len(self.cache), routes, greedy_rewards,
+          dur, self.game.t_copy, self.game.t_sim)
     return actions[0]
 
-  def search(self, last_action, s, actions=None):
+  def dfs(self, last_action, s, forward_actions=None, next_candidates=None):
     dep = s.seq - self.frame.seq
     if dep >= Worker.MAX_DEPTH or s.rewards < 0:
       ret = s.rewards, ''  # TODO: + value from nn
@@ -1205,43 +1328,42 @@ class Worker(threading.Thread):
       if ret is not None:
         return ret
 
-      ret = (-10000, '')  # best rewards, action
+      ret = (-10000, '')  # best rewards, actions
 
-      if actions is None:
-        actions = ACTIONS[:]
-        if s.missile.y < 200 or last_action in 'Alr':
-          actions = actions[:3]  # don't hold the A button
+      candidates = None
+
+      if forward_actions:
+        candidates = [forward_actions[0]]
+        forward_actions = forward_actions[1:]
+        h = None
+      elif next_candidates:
+        candidates = next_candidates
+        next_candidates = None
+
+      if candidates is None:
+        candidates = ACTIONS[:]
+        if s.missile.y < MISSILE_INIT_Y or last_action in 'Alr':
+          candidates = candidates[:3]  # don't hold the A button
+        # TODO: More likehood to choose last_action.
         if dep == 0:
           prob = [math.exp(logit) * random.random() for logit in self.logits]
-          actions.sort(key=lambda a: prob[ACTION_ID[a]], reverse=1)
+          candidates.sort(key=lambda a: prob[ACTION_ID[a]], reverse=1)
         else:
-          random.shuffle(actions)
+          random.shuffle(candidates)
 
-      for action in actions:
+      for action in candidates:
         # TODO: simulate enemies and galaxian separately.
         t = self.game.Simulate(s, action)
-        tr, ta = self.search(action, t)
+        tr, ta = self.dfs(action, t, forward_actions=forward_actions,
+                          next_candidates=next_candidates)
         if tr > ret[0]:
           ret = (tr, action+ta)
         if ret[0] >= 0:
           break  # just to survive
 
-      self.cache[h] = ret
+      if h is not None:
+        self.cache[h] = ret
     return ret
-
-  def greedy(self, s, tx, ts):
-    ax = 'R' if tx > 0 else 'L'
-    tx = abs(tx)
-    actions = ''
-    for a, t in [(ax, tx), ('_', ts)]:
-      for i in xrange(t):
-        actions += a
-        s = self.game.Simulate(s, a)
-        if s.rewards < 0 or len(actions) >= Worker.MAX_DEPTH:
-          return s.rewards, actions
-    last_action = actions[-1] if len(actions) else self.frame.action
-    rewards, actions1 = self.search(last_action, s, actions='Alr')
-    return rewards, actions + actions1
 
   def mcts(self, s):
     actions = ''
@@ -1249,11 +1371,10 @@ class Worker(threading.Thread):
     for dep in xrange(0, Worker.MAX_DEPTH):
       candidates = ACTIONS
       logits = self.logits
-      if s.missile.y < 200 or last_action in 'Alr':
+      if s.missile.y < MISSILE_INIT_Y or last_action in 'Alr':
         candidates = candidates[:3]  # don't hold the A button
         logits = logits[:3]
       if dep == 0:
-        logits -= np.max(logits)
         probs = np.exp(logits)
         probs = np.maximum(probs, .01)
         probs /= np.sum(probs)
