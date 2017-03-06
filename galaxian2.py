@@ -1119,7 +1119,7 @@ class Worker(threading.Thread):
         info = ''
         if send_value:
           info = 'v=' + str(value)
-        if nn_action != action:
+        if self.is_ui_server and nn_action != action:
           info += ' o'
         frame1 = game.Step(action, paths=paths, info=info)
         experience.append((frame, frame1, value, state))
@@ -1195,7 +1195,7 @@ class Worker(threading.Thread):
           logging.info('task: %d steps: %9d episode length: %4d rewards: %6.2f '
               'scores: %5d',
               self.task_id, step, game.length, game.rewards, game.scores)
-          if FLAGS.search:
+          if FLAGS.search and not FLAGS.train:
             for f in list(game.last_frames)[-10:]:
               logging.info(
                   '  galaxian:%s missile:%s bullets:%s bv:%s '
@@ -1255,7 +1255,7 @@ class Worker(threading.Thread):
     # TODO: do this if missile if fired too.
     groutes = None
     grewards = None
-    if s.missile.y >= MISSILE_INIT_Y and rewards <= 1:
+    if False and s.missile.y >= MISSILE_INIT_Y and rewards <= 1:
       groutes = []
       grewards = []
       for eid, e in s.incoming_enemies.iteritems():
