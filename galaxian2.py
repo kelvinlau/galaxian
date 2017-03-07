@@ -99,7 +99,7 @@ def rehash(x, y):
 
 
 def iround(x):
-  return x if isinstance(x, int) else round(x, 1)
+  return x if isinstance(x, int) else round(x, 2)
 
 
 class Point:
@@ -154,7 +154,9 @@ class Rect(object):
 
 
 def intersected(a, b):
-  return not(a.x2 < b.x1 or b.x2 < a.x1) and not(a.y2 < b.y1 or b.y2 < a.y1)
+  tx = max(0, min(a.x2-b.x1+1, b.x2-a.x1+1))
+  ty = max(0, min(a.y2-b.y1+1, b.y2-a.y1+1))
+  return min(tx, ty, 4)
 
 
 def one_hot(n, i):
@@ -460,6 +462,7 @@ class SFrame:
       self.bullets = {i: e.copy() for i, e in src.bullets.iteritems()}
       self.seq = src.seq
     self.rewards = 0
+    self.b = None
 
   def __hash__(self):
     h = hash(self.seq)
@@ -468,6 +471,8 @@ class SFrame:
     for eid in self.incoming_enemies:
       h = rehash(h, hash(eid))
     return h
+
+  # TODO: __eq__
 
   def copy(self):
     return SFrame(self)
@@ -578,13 +583,16 @@ class Game:
         e.y = int(round(se.y + (te.y - se.y) * i / FRAME_SKIP))
 
       for b in t.bullets.values():
-        if intersected(b, t.galaxian):
-          t.rewards = -100 * decay
+        h = intersected(b, t.galaxian)
+        if h:
+          t.rewards -= 25 * h * decay
+          t.b = b.copy()
           return t
 
       for e in t.incoming_enemies.values():
-        if intersected(e, t.galaxian):
-          t.rewards = -100 * decay
+        h = intersected(e, t.galaxian)
+        if h:
+          t.rewards -= 20 * h * decay
           return t
       
       hits = 0
@@ -593,14 +601,14 @@ class Game:
           if mask > 0:
             e = Point(t.sdx + 16 * i, 108 - 12 * low_bit(mask))
             er = Rect(e + Point(0, -3), 5, 11)
-            if intersected(e, t.missile):
+            if intersected(e, t.missile) == 2:
               hits += 1
               t.rewards += 1
               break
         
       if t.missile.y < MISSILE_INIT_Y:
         for eid, e in t.incoming_enemies.items():
-          if intersected(e, t.missile):
+          if intersected(e, t.missile) == 2:
             t.rewards += (frame.et[eid] + 2)
             del t.incoming_enemies[eid]
             hits += 1
@@ -1237,19 +1245,19 @@ class Worker(threading.Thread):
     s = SFrame(frame)
     self.cache = {}
 
-    rewards, actions = self.dfs(frame.action, s, forward_actions=nn_action)
+    rewards, actions, bb = self.dfs(frame.action, s, forward_actions=nn_action)
     stra = 'n'
 
     if self.last_actions and rewards < 0:
-      r, a = self.dfs(frame.action, s, forward_actions=self.last_actions[1:])
+      r, a, b = self.dfs(frame.action, s, forward_actions=self.last_actions[1:])
       if r > rewards:
-        rewards, actions = r, a
+        rewards, actions, bb = r, a, b
         stra = 'c'
 
     if rewards < 0:
-      r, a = self.dfs(frame.action, s)
+      r, a, b = self.dfs(frame.action, s)
       if r > rewards:
-        rewards, actions = r, a
+        rewards, actions, bb = r, a, b
         stra = 's'
 
     # TODO: do this if missile if fired too.
@@ -1309,7 +1317,7 @@ class Worker(threading.Thread):
         rewards, actions = r, a
         stra = 'm'
 
-    if rewards < 0:
+    if 0 and rewards < 0:
       ret = nn_action
       stra = 'n'
       self.last_actions = None
@@ -1317,26 +1325,26 @@ class Worker(threading.Thread):
       ret = actions[0]
       self.last_actions = actions
 
-    if 0:
+    if not FLAGS.train:
       dur = now()-start
       logging.info(
           'search seq: %d gx: %3d my: %3d '
           'stra: %-2s rewards: %7.2f %1s nn_action: %s '
           'actions: %-11s cache size: %5d groutes: %s grewards: %s '
-          'dur: %d t_sim: %d',
+          'dur: %d t_sim: %d bb: %s',
           frame.seq, frame.galaxian.x, frame.missile.y,
           stra, rewards, 'o' if nn_action != ret else '', nn_action,
           actions, len(self.cache), groutes, grewards,
-          dur, self.game.t_sim)
+          dur, self.game.t_sim, bb)
     return ret
 
   def dfs(self, last_action, s, forward_actions=None, next_candidates=None):
     dep = s.seq - self.frame.seq
     if dep >= Worker.MAX_DEPTH or s.rewards < 0:
-      ret = s.rewards, ''  # TODO: + value from nn
+      ret = s.rewards, '', s.b  # TODO: + value from nn
     else:
-      h = hash(s)  # TODO: hash collision?
-      ret = self.cache.get(h)
+      #h = hash(s)  # TODO: hash collision?
+      ret = self.cache.get(s)
       if ret is not None:
         return ret
 
@@ -1344,13 +1352,15 @@ class Worker(threading.Thread):
 
       candidates = None
 
+      limited = 0
       if forward_actions:
         candidates = [forward_actions[0]]
         forward_actions = forward_actions[1:]
-        h = None
+        limited = 1
       elif next_candidates:
         candidates = next_candidates
         next_candidates = None
+        limited = 1
 
       if candidates is None:
         candidates = ACTIONS[:]
@@ -1366,15 +1376,15 @@ class Worker(threading.Thread):
       for action in candidates:
         # TODO: simulate enemies and galaxian separately.
         t = self.game.Simulate(s, action)
-        tr, ta = self.dfs(action, t, forward_actions=forward_actions,
-                          next_candidates=next_candidates)
+        tr, ta, tb = self.dfs(action, t, forward_actions=forward_actions,
+                              next_candidates=next_candidates)
         if tr > ret[0]:
-          ret = (tr, action+ta)
+          ret = (tr, action+ta, tb)
         if ret[0] >= 0:
           break  # just to survive
 
-      if h is not None:
-        self.cache[h] = ret
+      if not limited:
+        self.cache[s] = ret
     return ret
 
   def mcts(self, s):
