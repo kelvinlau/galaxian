@@ -44,7 +44,7 @@ map<int, IncomingEnemy> GetIncomingEnemies() {
     if (x > 0 and y > 0) {
       IncomingEnemy e;
       e.x = (x + 8) % 0xFF;
-      e.y = y + 6;
+      e.y = y + 3;
       e.row = RAM[0x718 + i];
       ret[i] = e;
     }
@@ -58,7 +58,7 @@ vector<Point> GetStillEnemies() {
   int dx = RAM[0xE5];
   for (int i = 0; i < 10; ++i) {
     int x = (dx + 48 + 16 * i + 8) % 0xFF;
-    int y = 108;
+    int y = 105;
     int mask = RAM[0xC3 + i];
     while (mask > 0) {
       if (mask % 2) {
@@ -91,7 +91,7 @@ map<int, Point> GetBullets() {
     int x = RAM[addr];
     int y = RAM[addr - 3];
     if (x > 0 and y > 0) {
-      ret[id] = Point{x + 4, y + 8};
+      ret[id] = Point{x + 4, y + 5};
     }
     ++id;
   }
@@ -100,8 +100,8 @@ map<int, Point> GetBullets() {
 
 // Our missile. nil if not fired.
 Point GetMissile() {
-  int x = RAM[0x283];
-  int y = RAM[0x280];
+  int x = RAM[0x283]+4;
+  int y = RAM[0x280]+5;
   return {x, y};
 }
 
@@ -120,7 +120,7 @@ int GetLifes() {
 State GetState() {
   State s;
   s.galaxian.x = (RAM[0xE4] + 128) % 256;
-  s.galaxian.y = 214;
+  s.galaxian.y = 209;
   //s.still_enemies = GetStillEnemies();
   s.still_enemies_encoded = GetStillEnemiesEncoded();
   s.incoming_enemies = GetIncomingEnemies();

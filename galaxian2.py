@@ -8,8 +8,6 @@ https://github.com/openai/universe-starter-agent/
 
 TODO: Model based, Dyna, Sarsa, TD search, Monte Carlo.
 TODO: Fix pixels.
-TODO: Lower learning rate.
-TODO: 1 more fc layer.
 TODO: Add paths into image?
 """
 
@@ -41,7 +39,7 @@ flags.DEFINE_string('ui_server', '../fceux-2.2.3-win32/fceux.exe -lua '
     'Z:\home\kelvinlau\galaxian\galaxian.nes',
     'ui server command')
 flags.DEFINE_string('cc_server', './server ./galaxian.nes', 'cc server command')
-flags.DEFINE_string('logdir', 'logs/2.30', 'Supervisor logdir')
+flags.DEFINE_string('logdir', 'logs/2.31', 'Supervisor logdir')
 flags.DEFINE_integer('port', 5001, 'server port to conenct')
 flags.DEFINE_integer('num_workers', 1, 'num servers')
 flags.DEFINE_bool('search', False, 'enable searching')
@@ -50,7 +48,7 @@ flags.DEFINE_bool('train_pnn', False, 'train pnn')
 flags.DEFINE_bool('send_paths', False, 'send path to render by ui server')
 flags.DEFINE_bool('send_value', False, 'send value to render by ui server')
 flags.DEFINE_bool('verify_image', False, 'save image to verify input')
-flags.DEFINE_float('learning_rate', 1e-4, 'learning rate')
+flags.DEFINE_float('learning_rate', 1e-5, 'learning rate')
 
 
 # Game constants.
@@ -229,7 +227,7 @@ class Frame:
     # Penalty on holding the A button.
     # if prev_frames:
     #   pv = prev_frames[-1]
-    #   if pv.missile.y < 200 and self.action in 'Alr':
+    #   if pv.missile.y < MISSILE_INIT_Y and self.action in 'Alr':
     #     self.reward -= 0.25
 
     self.galaxian = galaxian = self.NextPoint()
@@ -250,7 +248,7 @@ class Frame:
     self.still_enemies = []
     for i, mask in enumerate(self.masks):
       x = self.sdx + 16 * i
-      y = 108
+      y = 105
       while mask:
         if mask % 2:
           self.still_enemies.append(Point(x, y))
@@ -283,12 +281,13 @@ class Frame:
     self.data = []
 
     # missile x, y
-    self.data.append((self.missile.x - galaxian.x) / 256.0)
-    self.data.append(self.missile.y / 200.0 if self.missile.y < 200 else 0)
+    self.data.append(1. * (self.missile.x - galaxian.x) / WIDTH)
+    self.data.append(1. * self.missile.y / MISSILE_INIT_Y
+        if self.missile.y < MISSILE_INIT_Y else 0)
     logging.debug('missile %d,%d', self.missile.x, self.missile.y)
 
     # galaxian x
-    self.data.append(galaxian.x / 256.0)
+    self.data.append(1. * galaxian.x / WIDTH)
 
     # still enemies dx relative to galaxian in focus region, and vx.
     smap = [0.] * (2*FOCUS)
@@ -395,15 +394,15 @@ class Frame:
     self.data = np.array(self.data)
 
     self.image = np.zeros((WIDTH, HEIGHT))
-    self.rect(galaxian, 16, 16)
-    if self.missile.y < 200:
-      self.rect(self.missile, 4, 8)
+    self.rect(galaxian, 7, 16)
+    if self.missile.y < MISSILE_INIT_Y:
+      self.rect(self.missile, 0, 4)
     for e in self.still_enemies:
-      self.rect(e, 8, 8)
-    for e in self.incoming_enemies.values():
-      self.rect(e, 8, 8)
+      self.rect(e, 5, 11)
+    for eid, e in self.incoming_enemies.iteritems():
+      self.rect(e, 5, 11, self.et[eid]+2.)
     for b in self.bullets.values():
-      self.rect(b, 4, 8)
+      self.rect(b, 0, 4)
     self.image = np.reshape(self.image, [WIDTH, HEIGHT, 1])
 
   def NextToken(self):
@@ -417,11 +416,9 @@ class Frame:
     return Point(self.NextInt(), self.NextInt())
 
   def rect(self, c, w, h, v=1.):
-    w /= 2
-    h /= 2
     x1 = max(c.x - w, 0)
-    x2 = min(c.x + w, WIDTH)
-    y1 = max(c.y - h, 0)
+    x2 = min(c.x + w + 1, WIDTH)
+    y1 = max(c.y, 0)
     y2 = min(c.y + h, HEIGHT)
     if x1 >= x2 or y1 >= y2:
       return
@@ -444,12 +441,12 @@ def is_dangerous(frame):
 class SFrame:
   def __init__(self, src=None):
     if isinstance(src, Frame):
-      self.galaxian = Rect(src.galaxian + Point(0, -5), 7, 16)
-      self.missile = Rect(src.missile + Point(4, 5), 0, 4)
+      self.galaxian = Rect(src.galaxian, 7, 16)
+      self.missile = Rect(src.missile, 0, 4)
       self.sdx = src.sdx
-      self.incoming_enemies = {i: Rect(e + Point(0, -3), 5, 11)
+      self.incoming_enemies = {i: Rect(e, 5, 11)
           for i, e in src.incoming_enemies.iteritems()}
-      self.bullets = {i: Rect(e + Point(0, -3), 0, 4)
+      self.bullets = {i: Rect(e, 0, 4)
           for i, e in src.bullets.iteritems()}
       self.seq = src.seq
     else:
@@ -596,11 +593,11 @@ class Game:
           return t
       
       hits = 0
-      if t.missile <= 112:
+      if t.missile <= 117:
         for i, mask in enumerate(frame.masks):
           if mask > 0:
-            e = Point(t.sdx + 16 * i, 108 - 12 * low_bit(mask))
-            er = Rect(e + Point(0, -3), 5, 11)
+            e = Point(t.sdx + 16 * i, 105 - 12 * low_bit(mask))
+            er = Rect(e, 5, 11)
             if intersected(e, t.missile) == 2:
               hits += 1
               t.rewards += 1
@@ -714,15 +711,18 @@ class ACNeuralNetwork:
       lstm_c, lstm_h = lstm_state
       self.state_out = [lstm_c, lstm_h]
 
-      # Output logits and value.
+      # 1 more fully connected layer.
       x = tf.reshape(lstm_outputs, [-1, LSTM_SIZE])
+      x = tf.nn.elu(linear(x, 512, 'fc0'))
+
+      # Output logits and value.
       self.logits = linear(x, OUTPUT_DIM, 'logits')
       self.value = tf.reshape(linear(x, 1, 'value'), [-1])
       self.action = categorical_sample(self.logits, OUTPUT_DIM)
 
       self.var_list = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES,
           scope=name)
-      assert len(self.var_list) == 16, len(self.var_list)
+      assert len(self.var_list) == 18, len(self.var_list)
 
       if global_ac is not None:
         self.actual_action = tf.placeholder(tf.float32, [None, OUTPUT_DIM],
@@ -1273,7 +1273,7 @@ class Worker(threading.Thread):
         prev = e
         for t in xrange(1, Worker.MAX_DEPTH+1):
           pos = path[t-1]
-          pos = Rect(pos+Point(0, -3), 5, 11)
+          pos = Rect(pos, 5, 11)
           MISSILE_MIN_HIT = MISSILE_INIT_Y + (FRAME_SKIP-1) * \
               MISSILE_FRAME_SPEED
           # TODO: Count hits between hits too.
