@@ -1170,8 +1170,8 @@ class Worker(threading.Thread):
 
           # training
           MINI_BATCH_SIZE = 32
+          EPOCHS = 2
           if len(pdata) >= 10000:
-            EPOCHS = 2
             p_train_cost = 0
             n = 0
             for e in xrange(EPOCHS):
@@ -1183,6 +1183,9 @@ class Worker(threading.Thread):
             logging.info('pnn train: data size: %d cost: %s', len(pdata),
                 p_train_cost)
             pdata = []
+            summary = tf.Summary()
+            summary.value.add(tag='pnn/train_cost', simple_value=p_train_cost)
+            self.summary_writer.add_summary(summary, self.global_step.Eval())
 
           # testing
           if step % 10000 == 0 and pdata:
@@ -1191,6 +1194,9 @@ class Worker(threading.Thread):
             logging.debug('pnn test inputs:\n%s\n targets:\n%s\n '
                 'outputs:\n%s\n delta:\n%s',
                 inputs, targets, outputs, outputs - targets)
+            summary = tf.Summary()
+            summary.value.add(tag='pnn/test_cost', simple_value=p_test_cost)
+            self.summary_writer.add_summary(summary, self.global_step.Eval())
 
         # summary
         action_summary[frame.action_id] += 1
