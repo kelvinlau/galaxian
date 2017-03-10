@@ -39,7 +39,7 @@ flags.DEFINE_string('ui_server', '../fceux-2.2.3-win32/fceux.exe -lua '
     'Z:\home\kelvinlau\galaxian\galaxian.nes',
     'ui server command')
 flags.DEFINE_string('cc_server', './server ./galaxian.nes', 'cc server command')
-flags.DEFINE_string('logdir', 'logs/2.31', 'Supervisor logdir')
+flags.DEFINE_string('logdir', 'logs/2.32', 'Supervisor logdir')
 flags.DEFINE_integer('port', 5001, 'server port to conenct')
 flags.DEFINE_integer('num_workers', 1, 'num servers')
 flags.DEFINE_bool('search', False, 'enable searching')
@@ -713,7 +713,7 @@ class ACNeuralNetwork:
 
       # 1 more fully connected layer.
       x = tf.reshape(lstm_outputs, [-1, LSTM_SIZE])
-      x = tf.nn.elu(linear(x, 512, 'fc0'))
+      x = tf.nn.elu(linear(x, 128, 'fc0'))
 
       # Output logits and value.
       self.logits = linear(x, OUTPUT_DIM, 'logits')
@@ -1150,7 +1150,6 @@ class Worker(threading.Thread):
         if FLAGS.train and (len(experience) >= TRAIN_LENGTH or frame.terminal):
           trainings += 1
           do_summary = self.task_id == 0 and trainings % 10 == 0
-
 
           ac.Sync()
           summary = ac.Train(experience, return_summary=do_summary)
