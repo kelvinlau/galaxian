@@ -737,7 +737,7 @@ class ACNeuralNetwork:
             tf.reduce_sum(log_prob * self.actual_action, [1]) * self.advantage)
         value_loss = 0.5 * tf.reduce_sum(tf.square(self.value - self.r))
         entropy = -tf.reduce_sum(prob * log_prob)
-        self.loss = policy_loss + 0.5 * value_loss - 0.001 * entropy
+        self.loss = policy_loss + 0.5 * value_loss - 0.05 * entropy
 
         grads = tf.gradients(self.loss, self.var_list)
         grads_clipped, _ = tf.clip_by_global_norm(grads, 1.0)
@@ -775,7 +775,7 @@ class ACNeuralNetwork:
     return ret[0][0], ret[1][0], ret[2:4], ret[4][0]
 
   def Train(self, experience, return_summary=False):
-    GAMMA = 0.99
+    GAMMA = 0.95
     LAMBDA = 1.0
 
     _, last_frame, _, last_state = experience[-1]
