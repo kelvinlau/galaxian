@@ -8,7 +8,6 @@ https://github.com/openai/universe-starter-agent/
 
 TODO: Model based, Dyna, Sarsa, TD search, Monte Carlo.
 TODO: Add paths into image?
-TODO: Use tf 1.0.
 """
 
 from __future__ import print_function
@@ -25,6 +24,7 @@ import scipy.signal
 import scipy.misc
 import numpy as np
 import tensorflow as tf
+import tensorflow.contrib.rnn as rnn
 
 
 flags = tf.app.flags
@@ -699,14 +699,14 @@ class ACNeuralNetwork:
       x = flatten(x)
       self.data = tf.placeholder(tf.float32, [None, DATA_SIZE],
           name='data')
-      x = tf.concat(1, [x, self.data])
+      x = tf.concat(axis=1, values=[x, self.data])
 
       # Make batch size as time dimension.
       x = tf.expand_dims(x, [0])
 
       # LSTM.
       LSTM_SIZE = 256
-      lstm = tf.nn.rnn_cell.LSTMCell(LSTM_SIZE, state_is_tuple=True)
+      lstm = rnn.BasicLSTMCell(LSTM_SIZE)
 
       c_init = np.zeros((1, lstm.state_size.c), np.float32)
       h_init = np.zeros((1, lstm.state_size.h), np.float32)
@@ -717,7 +717,7 @@ class ACNeuralNetwork:
       self.state_in = [c_in, h_in]
 
       lstm_outputs, lstm_state = tf.nn.dynamic_rnn(
-          lstm, x, initial_state=tf.nn.rnn_cell.LSTMStateTuple(c_in, h_in),
+          lstm, x, initial_state=rnn.LSTMStateTuple(c_in, h_in),
           sequence_length=tf.shape(self.image)[:1])
       lstm_c, lstm_h = lstm_state
       self.state_out = [lstm_c, lstm_h]
@@ -840,12 +840,10 @@ class PathNeuralNetwork:
       LSTM_SIZE = 16
       self.input = tf.placeholder(tf.float32, [None, PATH_LEN, INPUT_SIZE])
       self.keep_prob = tf.placeholder(tf.float32)
-      lstm0 = tf.nn.rnn_cell.LSTMCell(LSTM_SIZE, state_is_tuple=True)
-      lstm1 = tf.nn.rnn_cell.LSTMCell(LSTM_SIZE, state_is_tuple=True)
-      lstm1 = tf.nn.rnn_cell.DropoutWrapper(lstm1,
-          output_keep_prob=self.keep_prob)
-      lstm = tf.nn.rnn_cell.MultiRNNCell([lstm0, lstm1],
-          state_is_tuple=True)
+      lstm0 = rnn.BasicLSTMCell(LSTM_SIZE)
+      lstm1 = rnn.BasicLSTMCell(LSTM_SIZE)
+      lstm1 = rnn.DropoutWrapper(lstm1, output_keep_prob=self.keep_prob)
+      lstm = rnn.MultiRNNCell([lstm0, lstm1])
       rnn_out, state = tf.nn.dynamic_rnn(lstm, self.input, dtype=tf.float32)
       rnn_out = tf.transpose(rnn_out, [1, 0, 2])
       rnn_out = rnn_out[-1]
