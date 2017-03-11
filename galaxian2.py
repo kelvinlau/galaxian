@@ -740,7 +740,7 @@ class ACNeuralNetwork:
         self.loss = policy_loss + 0.5 * value_loss - 0.05 * entropy
 
         grads = tf.gradients(self.loss, self.var_list)
-        grads_clipped, _ = tf.clip_by_global_norm(grads, 1.0)
+        grads_clipped, _ = tf.clip_by_global_norm(grads, 10.0)
 
         self.optimizer = \
             tf.train.AdamOptimizer(FLAGS.learning_rate).apply_gradients(
