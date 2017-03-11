@@ -21,7 +21,6 @@ import subprocess
 import logging
 import threading
 import scipy.signal
-import scipy.misc
 import numpy as np
 import tensorflow as tf
 import tensorflow.contrib.rnn as rnn
@@ -47,7 +46,6 @@ flags.DEFINE_bool('train', False, 'train or just play')
 flags.DEFINE_bool('train_pnn', False, 'train pnn')
 flags.DEFINE_bool('send_paths', False, 'send path to render by ui server')
 flags.DEFINE_bool('send_value', False, 'send value to render by ui server')
-flags.DEFINE_bool('verify_image', False, 'save image to verify input')
 flags.DEFINE_float('learning_rate', 1e-4, 'learning rate')
 
 
@@ -732,12 +730,12 @@ class ACNeuralNetwork:
       self.action = categorical_sample(self.logits, OUTPUT_DIM)
 
       self.var_list = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES,
-          scope=name)
+                                        scope=name)
       assert len(self.var_list) == 18, len(self.var_list)
 
       if global_ac is not None:
         self.actual_action = tf.placeholder(tf.float32, [None, OUTPUT_DIM],
-            name='actual_action')
+                                            name='actual_action')
         self.advantage = tf.placeholder(tf.float32, [None], name='advantage')
         self.r = tf.placeholder(tf.float32, [None], name='r')
 
@@ -768,13 +766,15 @@ class ACNeuralNetwork:
           tf.summary.scalar("entropy", entropy / batch_size),
           tf.summary.scalar("loss", self.loss / batch_size),
           tf.summary.scalar("grad_global_norm", tf.global_norm(grads)),
-          tf.summary.scalar("var_global_norm",
-              tf.global_norm(self.var_list)),
+        ]
+        self.summary_op = tf.summary.merge(summaries + global_ac.summaries)
+      else:
+        self.summaries = [
+          tf.summary.scalar("var_global_norm", tf.global_norm(self.var_list)),
         ]
         for v in self.var_list:
           hist_name = "hist/"+v.name[len(name)+1:-2]
-          summaries.append(tf.summary.histogram(hist_name, v))
-        self.summary_op = tf.summary.merge(summaries)
+          self.summaries.append(tf.summary.histogram(hist_name, v))
 
   def InitialState(self):
     return self.state_init
@@ -1014,7 +1014,7 @@ class SavedVar:
     tf.get_default_session().run(self.assign, {self.val: val})
 
   def Inc(self, delta):
-    tf.get_default_session().run(self.inc, {self.val: delta})
+    return tf.get_default_session().run(self.inc, {self.val: delta})
 
 
 def main(unused_argv):
@@ -1154,10 +1154,6 @@ class Worker(threading.Thread):
             step, value, format_list(logits, fmt='%7.3f'), frame.action,
             frame.reward, eval_dur, step_dur)
 
-        if FLAGS.verify_image and step % 100 == 0 and self.task_id == 0:
-          scipy.misc.imsave('image.jpg',
-              np.transpose(np.reshape(frame.data, (WIDTH, HEIGHT))))
-
         # policy training
         TRAIN_LENGTH = 20
         if FLAGS.train and (len(experience) >= TRAIN_LENGTH or frame.terminal):
@@ -1166,13 +1162,12 @@ class Worker(threading.Thread):
 
           ac.Sync()
           summary = ac.Train(experience, return_summary=do_summary)
-          self.global_step.Inc(len(experience))
+          global_step = self.global_step.Inc(len(experience))
           experience = []
 
           if do_summary:
-            self.summary_writer.add_summary(
-                tf.Summary.FromString(summary),
-                self.global_step.Eval())
+            self.summary_writer.add_summary(tf.Summary.FromString(summary),
+                                            global_step)
 
         # pnn training
         if train_pnn:
@@ -1228,7 +1223,7 @@ class Worker(threading.Thread):
                   'incoming_enemies:%s',
                   f.galaxian, f.missile, f.bullets, f.bv, f.incoming_enemies)
 
-          prefix = 'game-{}/'.format(self.task_id)
+          prefix = 'game-{}/'.format('eval' if self.eval_mode else 'train')
           summary = tf.Summary()
           summary.value.add(tag=prefix+'rewards', simple_value=game.rewards)
           summary.value.add(tag=prefix+'scores', simple_value=game.scores)
