@@ -7,8 +7,8 @@ https://medium.com/@awjuliani/simple-reinforcement-learning-with-tensorflow-part
 https://github.com/openai/universe-starter-agent/
 
 TODO: Model based, Dyna, Sarsa, TD search, Monte Carlo.
-TODO: Fix pixels.
 TODO: Add paths into image?
+TODO: Use tf 1.0.
 """
 
 from __future__ import print_function
@@ -39,7 +39,7 @@ flags.DEFINE_string('ui_server', '../fceux-2.2.3-win32/fceux.exe -lua '
     'Z:\home\kelvinlau\galaxian\galaxian.nes',
     'ui server command')
 flags.DEFINE_string('cc_server', './server ./galaxian.nes', 'cc server command')
-flags.DEFINE_string('logdir', 'logs/2.32', 'Supervisor logdir')
+flags.DEFINE_string('logdir', 'logs/2.33', 'Supervisor logdir')
 flags.DEFINE_integer('port', 5001, 'server port to conenct')
 flags.DEFINE_integer('num_workers', 1, 'num servers')
 flags.DEFINE_bool('search', False, 'enable searching')
@@ -48,7 +48,7 @@ flags.DEFINE_bool('train_pnn', False, 'train pnn')
 flags.DEFINE_bool('send_paths', False, 'send path to render by ui server')
 flags.DEFINE_bool('send_value', False, 'send value to render by ui server')
 flags.DEFINE_bool('verify_image', False, 'save image to verify input')
-flags.DEFINE_float('learning_rate', 1e-5, 'learning rate')
+flags.DEFINE_float('learning_rate', 1e-4, 'learning rate')
 
 
 # Game constants.
@@ -400,7 +400,7 @@ class Frame:
     for e in self.still_enemies:
       self.rect(e, 5, 11)
     for eid, e in self.incoming_enemies.iteritems():
-      self.rect(e, 5, 11, self.et[eid]+2.)
+      self.rect(e, 5, 11)
     for b in self.bullets.values():
       self.rect(b, 0, 4)
     self.image = np.reshape(self.image, [WIDTH, HEIGHT, 1])
@@ -653,24 +653,35 @@ def discount(x, gamma):
   return scipy.signal.lfilter([1], [1, -gamma], x[::-1], axis=0)[::-1]
 
 
-def var(shape, name=None):
-  return tf.Variable(tf.truncated_normal(shape, stddev=.02), name=name)
+def const_var(name, shape, value=0.):
+  return tf.get_variable(name, shape,
+                         initializer=tf.constant_initializer(value))
 
 
-def linear(x, n, name):
-  m = x.get_shape().as_list()[1]
-  w = var([m, n], name=name+'/w')
-  b = var([n], name=name+'/b')
-  return tf.matmul(x, w) + b
+def linear(x, n, name, w_std=1.):
+  with tf.variable_scope(name):
+    m = x.get_shape().as_list()[1]
+    w_init = np.random.randn(m, n).astype(np.float32)
+    w_init *= w_std / np.sqrt(np.square(w_init).sum(axis=0, keepdims=1))
+    w = tf.Variable(tf.constant(w_init), name='w')
+    b = const_var('b', [n], 0.)
+    return tf.matmul(x, w) + b
 
 
 def conv2d(x, num_filters, name, filter_size, stride):
-  stride_shape = [1, stride[0], stride[1], 1]
-  filter_shape = [filter_size[0], filter_size[1], int(x.get_shape()[3]),
-      num_filters]
-  w = var(filter_shape, name=name+'/w')
-  b = var([1, 1, 1, num_filters], name=name+'/b')
-  return tf.nn.conv2d(x, w, stride_shape, 'VALID') + b
+  with tf.variable_scope(name):
+    stride_shape = [1, stride[0], stride[1], 1]
+    filter_shape = [filter_size[0], filter_size[1], int(x.get_shape()[3]),
+        num_filters]
+
+    fan_in = np.prod(filter_shape[:3])
+    fan_out = np.prod(filter_shape[:2]) * num_filters
+    wb = np.sqrt(6. / (fan_in + fan_out))
+
+    w = tf.get_variable('w', filter_shape,
+                        initializer=tf.random_uniform_initializer(-wb, wb))
+    b = const_var('b', [1, 1, 1, num_filters], value=0.)
+    return tf.nn.conv2d(x, w, stride_shape, 'VALID') + b
 
 
 def flatten(x):
@@ -716,7 +727,7 @@ class ACNeuralNetwork:
       x = tf.nn.elu(linear(x, 128, 'fc0'))
 
       # Output logits and value.
-      self.logits = linear(x, OUTPUT_DIM, 'logits')
+      self.logits = linear(x, OUTPUT_DIM, 'logits', w_std=0.01)
       self.value = tf.reshape(linear(x, 1, 'value'), [-1])
       self.action = categorical_sample(self.logits, OUTPUT_DIM)
 
@@ -751,6 +762,7 @@ class ACNeuralNetwork:
 
         batch_size = tf.to_float(tf.shape(self.image)[0])
         summaries = [
+          tf.summary.image("image", tf.transpose(self.image, [0, 2, 1, 3])),
           tf.summary.scalar("policy_loss", policy_loss / batch_size),
           tf.summary.scalar("value_loss", value_loss / batch_size),
           tf.summary.scalar("entropy", entropy / batch_size),
@@ -759,6 +771,9 @@ class ACNeuralNetwork:
           tf.summary.scalar("var_global_norm",
               tf.global_norm(self.var_list)),
         ]
+        for v in self.var_list:
+          hist_name = "hist/"+v.name[len(name)+1:-2]
+          summaries.append(tf.summary.histogram(hist_name, v))
         self.summary_op = tf.summary.merge(summaries)
 
   def InitialState(self):
@@ -1149,7 +1164,7 @@ class Worker(threading.Thread):
         TRAIN_LENGTH = 20
         if FLAGS.train and (len(experience) >= TRAIN_LENGTH or frame.terminal):
           trainings += 1
-          do_summary = self.task_id == 0 and trainings % 10 == 0
+          do_summary = trainings % 10 == 0
 
           ac.Sync()
           summary = ac.Train(experience, return_summary=do_summary)
@@ -1215,10 +1230,11 @@ class Worker(threading.Thread):
                   'incoming_enemies:%s',
                   f.galaxian, f.missile, f.bullets, f.bv, f.incoming_enemies)
 
+          prefix = 'game-{}/'.format(self.task_id)
           summary = tf.Summary()
-          summary.value.add(tag='game/rewards', simple_value=game.rewards)
-          summary.value.add(tag='game/scores', simple_value=game.scores)
-          summary.value.add(tag='game/length', simple_value=game.length)
+          summary.value.add(tag=prefix+'rewards', simple_value=game.rewards)
+          summary.value.add(tag=prefix+'scores', simple_value=game.scores)
+          summary.value.add(tag=prefix+'length', simple_value=game.length)
           self.summary_writer.add_summary(summary, self.global_step.Eval())
 
           frame = game.Step('_')
