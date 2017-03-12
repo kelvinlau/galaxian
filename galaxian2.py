@@ -8,6 +8,9 @@ https://github.com/openai/universe-starter-agent/
 
 TODO: Model based, Dyna, Sarsa, TD search, Monte Carlo.
 TODO: Add paths into image?
+TODO: Add color?
+TODO: Frame skip = 4?
+TODO: Longer time window?
 """
 
 from __future__ import print_function
