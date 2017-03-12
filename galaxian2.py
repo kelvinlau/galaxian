@@ -11,6 +11,7 @@ TODO: Add paths into image?
 TODO: Add color?
 TODO: Frame skip = 4?
 TODO: Longer time window?
+TODO: -1 reward on die?
 """
 
 from __future__ import print_function
@@ -322,8 +323,8 @@ class Frame:
     ies = []
     for eid, e in sorted(
         self.incoming_enemies.items(), key = lambda p: p[1].y):
-      dx = (e.x - galaxian.x) / 256.0
-      dy = (e.y - galaxian.y) / 256.0
+      dx = 1. * (e.x - galaxian.x) / WIDTH
+      dy = 1. * (e.y - galaxian.y) / WIDTH
       ies.append([dx, dy] + one_hot(3, self.et[eid]))
     for i in xrange(NUM_INCOMING_ENEMIES-len(ies)):
       ies.append([1, 1, 0, 0, 0])
@@ -332,10 +333,12 @@ class Frame:
 
     # hit map
     def ix(x):
-      return max(0, min(HMAP_WIDTH-1, (int(round(x))-galaxian.x+128)/DX))
+      return max(0, min(HMAP_WIDTH-1, (int(round(x))-galaxian.x+WIDTH/2)/DX))
     # out-of-bound tiles have penality.
-    imap = [0. if ix(0) <= i <= ix(255) else 1. for i in range(HMAP_WIDTH)]
+    imap = [0. if ix(0) <= i <= ix(WIDTH-1) else 1. for i in range(HMAP_WIDTH)]
     bmap = imap[:]
+    self.imap = imap
+    self.bmap = bmap
 
     # incoming enemy paths
     self.paths = {}
@@ -762,8 +765,12 @@ class ACNeuralNetwork:
           for dst, src in zip(self.var_list, global_ac.var_list)])
 
         batch_size = tf.to_float(tf.shape(self.image)[0])
+        self.bmap = tf.placeholder(tf.float32, [None, HMAP_WIDTH], name='bmap')
+        self.imap = tf.placeholder(tf.float32, [None, HMAP_WIDTH], name='imap')
         summaries = [
           tf.summary.image("image", tf.transpose(self.image, [0, 2, 1, 3])),
+          tf.summary.image("bmap", tf.reshape(self.bmap, [-1, 1, HMAP_WIDTH, 1])),
+          tf.summary.image("imap", tf.reshape(self.imap, [-1, 1, HMAP_WIDTH, 1])),
           tf.summary.scalar("policy_loss", policy_loss / batch_size),
           tf.summary.scalar("value_loss", value_loss / batch_size),
           tf.summary.scalar("entropy", entropy / batch_size),
@@ -801,6 +808,8 @@ class ACNeuralNetwork:
     last_value = self.Eval(last_frame, last_state)[1] if not terminal else 0.
     data = np.array([f.data for f, _, _, _ in experience])
     images = np.array([f.image for f, _, _, _ in experience])
+    bmaps = np.array([f.bmap for f, _, _, _ in experience])
+    imaps = np.array([f.imap for f, _, _, _ in experience])
     frames = [e[1] for e in experience]
     actions = np.array([one_hot(OUTPUT_DIM, f.action_id) for f in frames])
     rewards = np.array([f.reward for f in frames])
@@ -818,6 +827,8 @@ class ACNeuralNetwork:
     results = tf.get_default_session().run(ops, {
       self.data: data,
       self.image: images,
+      self.bmap: bmaps,
+      self.imap: imaps,
       self.actual_action: actions,
       self.advantage: advantages,
       self.r: rs,
