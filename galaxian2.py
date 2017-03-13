@@ -221,8 +221,8 @@ class Frame:
     self.reward = math.sqrt(self.score/30.0)
 
     self.terminal = self.NextInt()
-    if self.terminal:
-      self.reward -= 2.0
+    #if self.terminal:
+    #  self.reward -= 2.0
 
     self.action = self.NextToken()
     self.action_id = ACTION_ID[self.action]
