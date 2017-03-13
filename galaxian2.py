@@ -11,6 +11,7 @@ TODO: Add paths into image?
 TODO: Add color?
 TODO: Frame skip = 4?
 TODO: Longer time window?
+TODO: 0.01 reward per step alive?
 """
 
 from __future__ import print_function
