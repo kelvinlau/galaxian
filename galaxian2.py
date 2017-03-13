@@ -11,7 +11,6 @@ TODO: Add paths into image?
 TODO: Add color?
 TODO: Frame skip = 4?
 TODO: Longer time window?
-TODO: 0.01 reward per step alive?
 """
 
 from __future__ import print_function
@@ -222,8 +221,8 @@ class Frame:
     self.reward = math.sqrt(self.score/30.0)
 
     self.terminal = self.NextInt()
-    #if self.terminal:
-    #  self.reward -= 2.0
+    if not self.terminal:
+      self.reward += 0.01
 
     self.action = self.NextToken()
     self.action_id = ACTION_ID[self.action]
