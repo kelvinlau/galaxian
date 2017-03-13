@@ -1114,7 +1114,7 @@ class Worker(threading.Thread):
     self.start()
 
   def run(self):
-    time.sleep(10)  # wait for server startup
+    time.sleep(20 if self.is_ui_server else 10)  # wait for server startup
     game = self.game = Game(self.port, self.pnn)
     game.Start(eval_mode=self.eval_mode)
     frame = game.Step('_')
