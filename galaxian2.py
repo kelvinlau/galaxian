@@ -801,7 +801,7 @@ class ACNeuralNetwork:
     return ret[0][0], ret[1][0], ret[2:4], ret[4][0]
 
   def Train(self, experience, return_summary=False):
-    GAMMA = 0.95
+    GAMMA = 0.98
     LAMBDA = 1.0
 
     _, last_frame, _, last_state = experience[-1]
