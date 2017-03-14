@@ -11,6 +11,7 @@ TODO: Add paths into image?
 TODO: Add color?
 TODO: Frame skip = 4?
 TODO: Longer time window?
+TODO: multiprocessing.
 """
 
 from __future__ import print_function
@@ -41,7 +42,7 @@ flags.DEFINE_string('ui_server', '../fceux-2.2.3-win32/fceux.exe -lua '
     'Z:\home\kelvinlau\galaxian\galaxian.nes',
     'ui server command')
 flags.DEFINE_string('cc_server', './server ./galaxian.nes', 'cc server command')
-flags.DEFINE_string('logdir', 'logs/2.33', 'Supervisor logdir')
+flags.DEFINE_string('logdir', 'logs/2.34', 'Supervisor logdir')
 flags.DEFINE_integer('port', 5001, 'server port to conenct')
 flags.DEFINE_integer('num_workers', 1, 'num servers')
 flags.DEFINE_bool('search', False, 'enable searching')
@@ -218,7 +219,7 @@ class Frame:
     self.seq = self.NextInt()
 
     self.score = self.NextInt()
-    self.reward = math.sqrt(self.score/30.0)
+    self.reward = math.sqrt(self.score/30.0)/3.0
 
     self.terminal = self.NextInt()
     if not self.terminal:
@@ -320,15 +321,15 @@ class Frame:
     logging.debug('smap [%s] %s %s %s', hmap_string(smap), sl, sr, svx)
 
     # incoming enemies: dx, dy, type.
-    # TODO: index by eid?
     ies = []
-    for eid, e in sorted(
-        self.incoming_enemies.items(), key = lambda p: p[1].y):
-      dx = 1. * (e.x - galaxian.x) / WIDTH
-      dy = 1. * (e.y - galaxian.y) / WIDTH
-      ies.append([dx, dy] + one_hot(3, self.et[eid]))
-    for i in xrange(NUM_INCOMING_ENEMIES-len(ies)):
-      ies.append([1, 1, 0, 0, 0])
+    for eid in xrange(NUM_INCOMING_ENEMIES):
+      e = self.incoming_enemies.get(eid)
+      if e is not None:
+        dx = 1. * (e.x - galaxian.x) / WIDTH
+        dy = 1. * (e.y - galaxian.y) / WIDTH
+        ies.append([dx, dy] + one_hot(3, self.et[eid]))
+      else:
+        ies.append([1, 1, 0, 0, 0])
     ies = sum(ies, [])
     self.data.extend(ies)
 
@@ -729,7 +730,7 @@ class ACNeuralNetwork:
 
       # 1 more fully connected layer.
       x = tf.reshape(lstm_outputs, [-1, LSTM_SIZE])
-      x = tf.nn.elu(linear(x, 128, 'fc0'))
+      #x = tf.nn.elu(linear(x, 128, 'fc0'))
 
       # Output logits and value.
       self.logits = linear(x, OUTPUT_DIM, 'logits', w_std=0.01)
@@ -738,7 +739,7 @@ class ACNeuralNetwork:
 
       self.var_list = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES,
                                         scope=name)
-      assert len(self.var_list) == 18, len(self.var_list)
+      assert len(self.var_list) == 16, len(self.var_list)
 
       if global_ac is not None:
         self.actual_action = tf.placeholder(tf.float32, [None, OUTPUT_DIM],
@@ -746,17 +747,18 @@ class ACNeuralNetwork:
         self.advantage = tf.placeholder(tf.float32, [None], name='advantage')
         self.r = tf.placeholder(tf.float32, [None], name='r')
 
-        log_prob = tf.nn.log_softmax(self.logits)
         prob = tf.nn.softmax(self.logits)
+        log_prob = tf.nn.log_softmax(self.logits)
+        min_prob = tf.reduce_min(prob)
 
         policy_loss = -tf.reduce_sum(
             tf.reduce_sum(log_prob * self.actual_action, [1]) * self.advantage)
         value_loss = 0.5 * tf.reduce_sum(tf.square(self.value - self.r))
         entropy = -tf.reduce_sum(prob * log_prob)
-        self.loss = policy_loss + 0.5 * value_loss - 0.05 * entropy
+        self.loss = policy_loss + 0.5 * value_loss - 0.01 * entropy
 
         grads = tf.gradients(self.loss, self.var_list)
-        grads_clipped, _ = tf.clip_by_global_norm(grads, 10.0)
+        grads_clipped, _ = tf.clip_by_global_norm(grads, 40.0)
 
         self.optimizer = \
             tf.train.AdamOptimizer(FLAGS.learning_rate).apply_gradients(
@@ -777,6 +779,7 @@ class ACNeuralNetwork:
           tf.summary.scalar("entropy", entropy / batch_size),
           tf.summary.scalar("loss", self.loss / batch_size),
           tf.summary.scalar("grad_global_norm", tf.global_norm(grads)),
+          tf.summary.scalar("min_prob", min_prob),
         ]
         self.summary_op = tf.summary.merge(summaries + global_ac.summaries)
       else:
