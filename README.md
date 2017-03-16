@@ -7,7 +7,7 @@ This is a project to play Galaxian (NES) using deepmind's a3c algorithm.
 To train:
 
     python galaxian2.py --train --train_pnn --num_workers=6 --ui_tasks=1 --eval_tasks=1 --port=5000
-    tail /tmp/galaxian-*.stderr -n1; nvidia-smi
+    watch "tail /tmp/galaxian-*.stderr -n1; nvidia-smi"
     tensorboard --logdir=logs/2.34
 
 If the training expodes, reset to good checkpoint, then set lower learning rate, e.g.
