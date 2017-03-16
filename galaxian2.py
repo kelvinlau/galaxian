@@ -49,7 +49,7 @@ flags.DEFINE_bool('search', False, 'enable searching')
 flags.DEFINE_bool('train', False, 'train or just play')
 flags.DEFINE_bool('train_pnn', False, 'train pnn')
 flags.DEFINE_bool('send_paths', False, 'send path to render by ui server')
-flags.DEFINE_bool('send_value', False, 'send value to render by ui server')
+flags.DEFINE_bool('send_value', True, 'send value to render by ui server')
 flags.DEFINE_float('learning_rate', 1e-4, 'learning rate')
 
 
