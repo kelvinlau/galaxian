@@ -1,12 +1,5 @@
-*.pool
-*.ckpt*
-*.cpk*
-**/checkpoint
 galaxian_test
 server
-*.nes
 *.o
-auxlib.lua
 logs/*
-*.jpg
 debug.py
